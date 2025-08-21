@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "851831454488",
+    "project_id": "bitacorassolnet",
+    "storage_bucket": "bitacorassolnet.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:851831454488:android:0911699f3e982b3290fc6d",
+        "android_client_info": {
+          "package_name": "com.terrallsolnet.bitacoraapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "851831454488-ntdbqvqsnp7h3g3jm27p9tn2sts6ser1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.terrallsolnet.bitacoraapp",
+            "certificate_hash": "3074b12d51923f1e1b9020f1d3c7a24e956aaf92"
+          }
+        },
+        {
+          "client_id": "851831454488-3pk92d9gpjbddfci41q050fe2oi8f6r8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDkU-h4-8v21JCCJsMCFkJfS4yC81hEGvM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "851831454488-3pk92d9gpjbddfci41q050fe2oi8f6r8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
