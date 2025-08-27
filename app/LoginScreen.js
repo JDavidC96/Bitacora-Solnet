@@ -4,7 +4,7 @@ import { ActivityIndicator, Alert, Animated, Dimensions, StyleSheet, Text, TextI
 
 // Firebase
 import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, signOut, } from 'firebase/auth';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/firebaseConfig';
 
 // Google Sign-In
@@ -14,11 +14,15 @@ import * as WebBrowser from 'expo-web-browser';
 // Iconos
 import { Ionicons } from '@expo/vector-icons';
 
+// Contexto de usuario (para guardar el rol)
+import { useUser } from '../context/UserContext';
+
 WebBrowser.maybeCompleteAuthSession();
 
 const { width, height } = Dimensions.get('window');
+const REDIRECT_URI = 'https://auth.expo.io/@davidc1296/bitacora-app';
 
-// Estrellas
+// Estrellas animadas
 function StarField() {
   const stars = Array.from({ length: 40 }).map((_, i) => ({
     id: i,
@@ -62,42 +66,47 @@ function StarField() {
   ));
 }
 
+/**
+ * 🔎 Obtiene el rol del usuario autenticado leyendo
+ *    /usuarios_permitidos/{uid}. Devuelve el string del rol o null.
+ *    (Las reglas de Firestore permiten esta lectura solo al propio usuario).
+ */
+async function fetchUserRole(uid) {
+  try {
+    if (!uid) return null;
+    const ref = doc(db, 'usuarios_permitidos', uid);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return typeof data?.rol === 'string' ? data.rol : null;
+  } catch (error) {
+    console.error('❌ Error obteniendo rol del usuario:', error);
+    return null;
+  }
+}
+
 export default function LoginScreen() {
   const router = useRouter();
+  const { setUser, setRole } = useUser?.() ?? {}; 
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  // transición noche → amanecer
   const [transition] = useState(new Animated.Value(0));
 
   // Google Auth Request
   const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId:'851831454488-3pk92d9gpjbddfci41q050fe2oi8f6r8.apps.googleusercontent.com',
-    androidClientId:'851831454488-ntdbqvqsnp7h3g3jm27p9tn2sts6ser1.apps.googleusercontent.com',
-    iosClientId: 'TU_CLIENT_ID_IOS.apps.googleusercontent.com',
+    expoClientId:
+      '851831454488-3pk92d9gpjbddfci41q050fe2oi8f6r8.apps.googleusercontent.com',
+    androidClientId:
+      '851831454488-ntdbqvqsnp7h3g3jm27p9tn2sts6ser1.apps.googleusercontent.com',
+    webClientId:
+      '851831454488-civogi30bdo554mrp0i3nkfdf01rmpoc.apps.googleusercontent.com',
+    redirectUri: REDIRECT_URI,
   });
 
-  // normalizar correo
-  const normalizeEmail = (correo) => correo.trim().toLowerCase();
-
-  // verificar si correo está permitido
-  const checkIfEmailAllowed = async (correo) => {
-    try {
-      const emailNormalizado = normalizeEmail(correo);
-      const q = query(
-        collection(db, 'usuarios_permitidos'),
-        where('email', '==', emailNormalizado)
-      );
-      const snapshot = await getDocs(q);
-      return !snapshot.empty;
-    } catch (error) {
-      console.error('❌ Error verificando usuario permitido:', error);
-      return false;
-    }
-  };
-
+  // Animación de transición
   const goToHome = () => {
     Animated.timing(transition, {
       toValue: 1,
@@ -108,22 +117,33 @@ export default function LoginScreen() {
     });
   };
 
-  // login con correo
+  // ⏩ Login con correo y contraseña
   const loginWithEmail = async () => {
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(
         auth,
-        normalizeEmail(email),
+        email.trim().toLowerCase(),
         password
       );
-      const allowed = await checkIfEmailAllowed(cred.user.email);
-      if (!allowed) {
-        Alert.alert('Acceso denegado', 'Este correo no está autorizado.');
+
+      // lee rol después de autenticado
+      const role = await fetchUserRole(cred.user.uid);
+      if (!role) {
+        Alert.alert('Acceso denegado', 'Este usuario no está autorizado.');
         await signOut(auth);
         setLoading(false);
         return;
       }
+
+      // Guardar rol en el contexto
+      if (typeof setUser === 'function') {
+        console.log("👉 UID:", cred.user.uid, "Rol leído:", role);
+        setUser({ uid: cred.user.uid, email: cred.user.email ?? '', role });
+      } else if (typeof setRole === 'function') {
+        setRole(role);
+      }
+
       setLoading(false);
       goToHome();
     } catch (error) {
@@ -133,7 +153,7 @@ export default function LoginScreen() {
     }
   };
 
-  // login con google
+  // ⏩ Login con Google
   useEffect(() => {
     const handleGoogleSignIn = async () => {
       if (response?.type === 'success') {
@@ -143,8 +163,10 @@ export default function LoginScreen() {
 
         try {
           const result = await signInWithCredential(auth, credential);
-          const allowed = await checkIfEmailAllowed(result.user.email);
-          if (!allowed) {
+
+          // 🚩 Leer rol del usuario
+          const role = await fetchUserRole(result.user.uid);
+          if (!role) {
             Alert.alert(
               'Acceso denegado',
               'Tu cuenta de Google no está autorizada.'
@@ -153,6 +175,18 @@ export default function LoginScreen() {
             setLoading(false);
             return;
           }
+
+          // Guardar rol en el contexto
+          if (typeof setUser === 'function') {
+            setUser({
+              uid: result.user.uid,
+              email: result.user.email ?? '',
+              role,
+            });
+          } else if (typeof setRole === 'function') {
+            setRole(role);
+          }
+
           setLoading(false);
           goToHome();
         } catch (error) {
@@ -165,7 +199,6 @@ export default function LoginScreen() {
     handleGoogleSignIn();
   }, [response]);
 
-  // interpolación de color
   const bgColor = transition.interpolate({
     inputRange: [0, 1],
     outputRange: ['#1E1E2F', '#ffc782'],
@@ -183,6 +216,7 @@ export default function LoginScreen() {
         style={styles.input}
         onChangeText={setEmail}
         keyboardType="email-address"
+        autoCapitalize="none"
       />
 
       <View style={styles.passwordContainer}>
@@ -267,6 +301,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
+    marginTop: 8,
     width: '100%',
   },
   buttonText: {

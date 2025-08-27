@@ -1,7 +1,9 @@
 // firebase/firebaseConfig.js
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: "AIzaSyB5Re2R1Va12BfjzvxyK7fBdChBUB0UHoY",
@@ -14,7 +16,19 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+
+// 👇 Detecta si estamos en web o en móvil
+let auth;
+if (Platform.OS === 'web') {
+  // En web ya usa localStorage automáticamente
+  auth = getAuth(app);
+} else {
+  // En React Native usamos AsyncStorage
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+}
+
 const db = getFirestore(app);
 
 export { auth, db };

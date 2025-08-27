@@ -1,6 +1,6 @@
-// =========================
+
 // Feriados (YYYY-MM-DD)
-// =========================
+
 export const HOLIDAYS_CO = [
   "2025-01-01",
   "2025-01-06",
@@ -21,9 +21,9 @@ export const HOLIDAYS_CO = [
   "2025-12-25",
 ];
 
-// =========================
+
 // Helpers de fecha (LOCAL, sin UTC)
-// =========================
+
 export const toYMD = (date) => {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -44,9 +44,8 @@ export const addDaysLocal = (date, days) => {
   return d;
 };
 
-// =========================
 // Utilidades de días hábiles (LOCAL)
-// =========================
+
 export const isBusinessDay = (date, holidays) => {
   const day = date.getDay(); // 0=Dom, 6=Sáb
   if (day === 0 || day === 6) return false;
@@ -57,6 +56,7 @@ export const isBusinessDay = (date, holidays) => {
 // Suma "businessDays" hábiles EXCLUYENDO el día inicial.
 // Ej: si businessDays=0 -> retorna el mismo día.
 // si quieres incluir el día de inicio, usa addBusinessDaysInclusive.
+
 export const addBusinessDaysCountFromStart = (startDate, businessDays, holidays) => {
   const date = fromYMD(startDate);
   let added = 0;
@@ -71,6 +71,7 @@ export const addBusinessDaysCountFromStart = (startDate, businessDays, holidays)
 
 // Suma "dur" días hábiles INCLUYENDO el día inicial.
 // Ej: dur=1 => misma fecha si es hábil (o la siguiente hábil si no lo es).
+
 export const addBusinessDaysInclusive = (startDate, dur, holidays) => {
   let start = fromYMD(startDate);
 
@@ -107,9 +108,9 @@ export const businessDaysBetweenInclusive = (startYMD, endYMD, holidays) => {
   return count;
 };
 
-// =========================
+
 // Definición de tareas (días HÁBILES)
-// =========================
+
 export const DEFINICION_TAREAS = [
   // Fase 1 - Contrato
   { id: "firma_contrato", titulo: "Firma contrato", fase: "Fase 1 - Contrato", dias: 3, dependsOn: [] },
@@ -161,9 +162,9 @@ export const DEFINICION_TAREAS = [
   { id: "acta_legalizacion", titulo: "Acta legalización", fase: "Fase 6 - Legalización del proyecto", dias: 1, dependsOn: [{ id: "legalizacion", relation: "startAtEndOf" }] },
 ];
 
-// =========================
+
 // buildSchedule con orden topológico y fechas LOCAL
-// =========================
+
 export const buildSchedule = (startDate, extraDurations = {}, holidays = HOLIDAYS_CO) => {
   const tareasMap = new Map();
   DEFINICION_TAREAS.forEach(t => {

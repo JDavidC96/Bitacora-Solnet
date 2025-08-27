@@ -1,13 +1,15 @@
-import { addDoc, collection, deleteDoc, doc, onSnapshot, } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
-import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View, } from "react-native";
+import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useUser } from "../context/UserContext"; // Acceder al rol del usuario
 import { db } from "../firebase/firebaseConfig";
 
 export default function PersonalScreen() {
+  const { role } = useUser(); // rol actual
   const [personal, setPersonal] = useState([]);
   const [nombre, setNombre] = useState("");
   const [cargo, setCargo] = useState("");
-  const [showForm, setShowForm] = useState(false); // Para mostrar/ocultar formulario
+  const [showForm, setShowForm] = useState(false);
 
   // Escuchar cambios en la colección "personal"
   useEffect(() => {
@@ -18,7 +20,7 @@ export default function PersonalScreen() {
     return () => unsubscribe();
   }, []);
 
-  // Agregar nueva persona
+  // Agregar nueva persona (solo admin/ingeniero)
   const handleAdd = async () => {
     if (!nombre.trim() || !cargo.trim()) {
       Alert.alert("Error", "Debes ingresar nombre y cargo");
@@ -29,37 +31,33 @@ export default function PersonalScreen() {
       await addDoc(collection(db, "personal"), {
         nombre,
         cargo,
-        estado: "libre", // libre por defecto
+        estado: "libre",
         proyectoAsignado: null,
       });
       setNombre("");
       setCargo("");
-      setShowForm(false); // Oculta el formulario después de crear
+      setShowForm(false);
     } catch (error) {
       console.error("Error agregando personal:", error);
     }
   };
 
-  // Eliminar persona
+  // Eliminar persona (solo admin)
   const handleDelete = async (id, nombre) => {
-    Alert.alert(
-      "Confirmar",
-      `¿Eliminar a ${nombre}?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, "personal", id));
-            } catch (error) {
-              console.error("Error eliminando personal:", error);
-            }
-          },
+    Alert.alert("Confirmar", `¿Eliminar a ${nombre}?`, [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteDoc(doc(db, "personal", id));
+          } catch (error) {
+            console.error("Error eliminando personal:", error);
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   // Renderizar cada persona
@@ -74,12 +72,16 @@ export default function PersonalScreen() {
             : `🔴 Ocupado en ${item.proyectoAsignado || "un proyecto"}`}
         </Text>
       </View>
-      <TouchableOpacity
-        style={styles.deleteBtn}
-        onPress={() => handleDelete(item.id, item.nombre)}
-      >
-        <Text style={styles.deleteText}>🗑️</Text>
-      </TouchableOpacity>
+
+      {/* Solo admin puede eliminar */}
+      {(role === "Administrador") && (
+        <TouchableOpacity
+          style={styles.deleteBtn}
+          onPress={() => handleDelete(item.id, item.nombre)}
+        >
+          <Text style={styles.deleteText}>🗑️</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -87,18 +89,23 @@ export default function PersonalScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>Gestión de Personal</Text>
 
-      {/* Botón para abrir/cerrar formulario */}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: showForm ? "#E53E3E" : "#38B2AC" }]}
-        onPress={() => setShowForm(!showForm)}
-      >
-        <Text style={styles.buttonText}>
-          {showForm ? "❌ Cancelar" : "➕ Crear Persona"}
-        </Text>
-      </TouchableOpacity>
+      {/* Solo admin/ingeniero pueden crear */}
+      {(role === "Administrador" || role === "Ingeniero") && (
+        <TouchableOpacity
+          style={[
+            styles.button,
+            { backgroundColor: showForm ? "#E53E3E" : "#38B2AC" },
+          ]}
+          onPress={() => setShowForm(!showForm)}
+        >
+          <Text style={styles.buttonText}>
+            {showForm ? "❌ Cancelar" : "➕ Crear Persona"}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Formulario de creación */}
-      {showForm && (
+      {showForm && (role === "Administrador" || role === "Ingeniero") && (
         <View style={styles.formBox}>
           <TextInput
             style={styles.input}
@@ -114,14 +121,13 @@ export default function PersonalScreen() {
             value={cargo}
             onChangeText={setCargo}
           />
-
           <TouchableOpacity style={styles.button} onPress={handleAdd}>
             <Text style={styles.buttonText}>✅ Guardar</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Lista del personal */}
+      {/* Lista del personal (todos la ven) */}
       <FlatList
         data={personal}
         keyExtractor={(item) => item.id}

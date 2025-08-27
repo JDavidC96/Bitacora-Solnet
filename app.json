@@ -1,23 +1,31 @@
 {
   "expo": {
-    "name": "bitacora-app",
+    "name": "Bitacora Solnet",
     "slug": "bitacora-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/solnet.png",
     "scheme": "bitacoraapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.terrallsolnet.bitacoraapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "android": {
       "package": "com.terrallsolnet.bitacoraapp",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/solnet.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "runtimeVersion": "1.0.0"
     },
     "web": {
       "bundler": "metro",
@@ -29,7 +37,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/solnet.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
@@ -45,6 +53,10 @@
       "eas": {
         "projectId": "aa580ca9-ed73-4cd2-9209-2be6631bde0c"
       }
-    }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/aa580ca9-ed73-4cd2-9209-2be6631bde0c"
+    },
+    "owner": "davidc1296"
   }
 }

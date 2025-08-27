@@ -4,12 +4,14 @@ import * as Notifications from 'expo-notifications';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, Linking, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useUser } from '../context/UserContext';
 import { db } from '../firebase/firebaseConfig';
 
 export default function HomeScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
+  const { role } = useUser();
 
   const [projects, setProjects] = useState([]);
   const [personal, setPersonal] = useState([]);
@@ -18,15 +20,17 @@ export default function HomeScreen() {
   const [assignModalVisible, setAssignModalVisible] = useState(false);
 
   const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectLocation, setNewProjectLocation] = useState('');
   const [selectedProject, setSelectedProject] = useState(null);
   const [editedName, setEditedName] = useState('');
+  const [editedLocation, setEditedLocation] = useState('');
   const [targetProject, setTargetProject] = useState(null);
 
-  // Estado para la fecha inicial
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
 
-  // Escuchar proyectos y personal con cleanup correcto
+  const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+
   useEffect(() => {
     const etapaUnsubs = [];
 
@@ -38,11 +42,9 @@ export default function HomeScreen() {
       }));
       setProjects(proyArray);
 
-      // limpiar listeners anteriores
       etapaUnsubs.forEach(unsub => unsub());
       etapaUnsubs.length = 0;
 
-      // listeners por cada proyecto
       proyArray.forEach((proj) => {
         const unsubEtapas = onSnapshot(
           collection(db, 'proyectos', proj.idDoc, 'etapas'),
@@ -75,7 +77,6 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Notificación si se guardó nota
   useEffect(() => {
     if (params?.saved === 'true') {
       Notifications.scheduleNotificationAsync({
@@ -88,15 +89,16 @@ export default function HomeScreen() {
     }
   }, [params]);
 
-  // Crear proyecto
   const handleAddProject = async () => {
-    if (newProjectName.trim() === '') return;
+    if (newProjectName.trim() === '' || newProjectLocation.trim() === '') return;
     try {
       await addDoc(collection(db, 'proyectos'), {
         title: newProjectName.trim(),
+        ubicacion: newProjectLocation.trim(),
         startDate: selectedDate.toISOString(),
       });
       setNewProjectName('');
+      setNewProjectLocation('');
       setSelectedDate(new Date());
       setModalVisible(false);
     } catch (error) {
@@ -104,29 +106,49 @@ export default function HomeScreen() {
     }
   };
 
-  // Eliminar proyecto con sus subcolecciones
   const handleDelete = async () => {
     if (!selectedProject) return;
     try {
       const projectId = selectedProject.idDoc;
+      const projectTitle = selectedProject.title;
+
       const etapasRef = collection(db, 'proyectos', projectId, 'etapas');
       const notasRef = collection(db, 'proyectos', projectId, 'notas');
+
       const etapasSnap = await getDocs(etapasRef);
       etapasSnap.forEach(async (et) => await deleteDoc(doc(etapasRef, et.id)));
+
       const notasSnap = await getDocs(notasRef);
       notasSnap.forEach(async (nt) => await deleteDoc(doc(notasRef, nt.id)));
+
+      const personalRef = collection(db, "personal");
+      const personalSnap = await getDocs(personalRef);
+
+      const updates = personalSnap.docs
+        .filter((p) => p.data().proyectoAsignado === projectTitle)
+        .map((p) =>
+          updateDoc(doc(db, "personal", p.id), {
+            estado: "libre",
+            proyectoAsignado: null,
+          })
+        );
+
+      await Promise.all(updates);
+
       await deleteDoc(doc(db, 'proyectos', projectId));
+
       setSelectedProject(null);
+      console.log("✅ Proyecto eliminado y personal liberado");
     } catch (error) {
-      console.error('Error eliminando proyecto y sus datos relacionados:', error);
+      console.error('Error eliminando proyecto y liberando personal:', error);
     }
   };
 
-  // Editar nombre de proyecto
   const confirmEdit = async () => {
     try {
       await updateDoc(doc(db, 'proyectos', selectedProject.idDoc), {
         title: editedName,
+        ubicacion: editedLocation,
       });
       setEditModalVisible(false);
       setSelectedProject(null);
@@ -135,7 +157,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Render item lista
   const renderItem = ({ item }) => {
     const asignados = personal.filter(p => p.proyectoAsignado === item.title);
 
@@ -148,7 +169,7 @@ export default function HomeScreen() {
             params: { id: item.idDoc, title: item.title || "Proyecto" },
           })
         }
-        onLongPress={() => setSelectedProject(item)}
+        onLongPress={() => canManage && setSelectedProject(item)}
       >
         <Text style={styles.cardText}>
           {item.title ? item.title : "(Sin nombre)"}
@@ -162,6 +183,22 @@ export default function HomeScreen() {
           <Text style={styles.dateText}>📅 (Sin fecha)</Text>
         )}
 
+        {item.ubicacion ? (
+          <Text
+            style={[styles.dateText, { color: '#4DA6FF', textDecorationLine: 'underline' }]}
+            onPress={() => {
+            const url = item.ubicacion.startsWith("http")
+            ? item.ubicacion
+            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.ubicacion)}`;
+          Linking.openURL(url);
+       }}
+      >
+          📍 {item.ubicacion}
+      </Text>
+    ) : (
+      <Text style={styles.dateText}>📍 (Sin ubicación)</Text>
+    )}
+
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: `${(item.progress || 0) * 100}%` }]} />
         </View>
@@ -169,7 +206,6 @@ export default function HomeScreen() {
           {Math.round((item.progress || 0) * 100)}% completado
         </Text>
 
-        {/* Mostrar personal asignado */}
         {asignados.length > 0 ? (
           <View style={{ marginTop: 8 }}>
             <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>👥 Personal asignado:</Text>
@@ -178,20 +214,22 @@ export default function HomeScreen() {
                 <Text style={{ color: '#DDD', fontSize: 13 }}>
                   • {p.nombre} ({p.cargo})
                 </Text>
-                <TouchableOpacity
-                  onPress={async () => {
-                    try {
-                      await updateDoc(doc(db, "personal", p.id), {
-                        estado: "libre",
-                        proyectoAsignado: null,
-                      });
-                    } catch (err) {
-                      console.error("Error desasignando personal:", err);
-                    }
-                  }}
-                >
-                  <Text style={{ color: "#E53E3E", fontSize: 13 }}>✖</Text>
-                </TouchableOpacity>
+                {canManage && (
+                  <TouchableOpacity
+                    onPress={async () => {
+                      try {
+                        await updateDoc(doc(db, "personal", p.id), {
+                          estado: "libre",
+                          proyectoAsignado: null,
+                        });
+                      } catch (err) {
+                        console.error("Error desasignando personal:", err);
+                      }
+                    }}
+                  >
+                    <Text style={{ color: "#E53E3E", fontSize: 13 }}>✖</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
           </View>
@@ -203,10 +241,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <LinearGradient
-      colors={['#edf2b1ff', '#ffc782ff', '#FF4500']}
-      style={{ flex: 1 }}
-    >
+    <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
       <View style={styles.container}>
         <Text style={styles.title}>Mis Proyectos</Text>
 
@@ -217,15 +252,13 @@ export default function HomeScreen() {
           contentContainerStyle={styles.list}
         />
 
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setModalVisible(true)}
-        >
-          <Text style={styles.addButtonText}>+ Agregar Proyecto</Text>
-        </TouchableOpacity>
+        {canManage && (
+          <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
+            <Text style={styles.addButtonText}>+ Agregar Proyecto</Text>
+          </TouchableOpacity>
+        )}
 
-        {/* Modal para crear proyecto */}
-        {modalVisible && (
+        {canManage && modalVisible && (
           <Modal animationType="slide" transparent visible={true}>
             <View style={styles.modalOverlay}>
               <View style={styles.modalContainer}>
@@ -237,18 +270,19 @@ export default function HomeScreen() {
                   value={newProjectName}
                   onChangeText={setNewProjectName}
                 />
-
-                {/* Selector de fecha inicial */}
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ubicación del proyecto"
+                  placeholderTextColor="#AAA"
+                  value={newProjectLocation}
+                  onChangeText={setNewProjectLocation}
+                />
                 <Text style={styles.modalLabel}>📅 Fecha inicial</Text>
-                <TouchableOpacity
-                  style={styles.dateButton}
-                  onPress={() => setShowPicker(true)}
-                >
+                <TouchableOpacity style={styles.dateButton} onPress={() => setShowPicker(true)}>
                   <Text style={styles.dateButtonText}>
                     {selectedDate.toLocaleDateString()}
                   </Text>
                 </TouchableOpacity>
-
                 {showPicker && (
                   <DateTimePicker
                     value={selectedDate}
@@ -260,11 +294,7 @@ export default function HomeScreen() {
                     }}
                   />
                 )}
-
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={handleAddProject}
-                >
+                <TouchableOpacity style={styles.confirmButton} onPress={handleAddProject}>
                   <Text style={styles.confirmButtonText}>Agregar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setModalVisible(false)}>
@@ -275,46 +305,41 @@ export default function HomeScreen() {
           </Modal>
         )}
 
-        {/* Modal opciones */}
         {selectedProject && !editModalVisible && (
           <Modal animationType="fade" transparent visible={true}>
             <View style={styles.modalOverlay}>
               <View style={styles.modalContainer}>
                 <Text style={styles.modalTitle}>¿Qué deseas hacer?</Text>
-
-                {/* Asignar personal */}
                 <TouchableOpacity
                   style={styles.confirmButton}
                   onPress={() => {
                     setTargetProject(selectedProject);
                     setAssignModalVisible(true);
-                    setSelectedProject(null); // cerrar menú
+                    setSelectedProject(null);
                   }}
                 >
                   <Text style={styles.confirmButtonText}>➕ Asignar personal</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={styles.confirmButton}
                   onPress={() => {
                     setEditedName(selectedProject.title);
+                    setEditedLocation(selectedProject.ubicacion || '');
                     setEditModalVisible(true);
-                    setSelectedProject(null); // cerrar menú
+                    setSelectedProject(null);
                   }}
                 >
                   <Text style={styles.confirmButtonText}>✏️ Editar</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={[styles.confirmButton, { backgroundColor: '#E53E3E' }]}
                   onPress={() => {
                     handleDelete();
-                    setSelectedProject(null); // cerrar menú
+                    setSelectedProject(null);
                   }}
                 >
                   <Text style={styles.confirmButtonText}>🗑️ Eliminar</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity onPress={() => setSelectedProject(null)}>
                   <Text style={styles.cancelText}>Cancelar</Text>
                 </TouchableOpacity>
@@ -323,7 +348,6 @@ export default function HomeScreen() {
           </Modal>
         )}
 
-        {/* Modal para editar nombre */}
         {editModalVisible && (
           <Modal animationType="slide" transparent visible={true}>
             <View style={styles.modalOverlay}>
@@ -336,10 +360,14 @@ export default function HomeScreen() {
                   value={editedName}
                   onChangeText={setEditedName}
                 />
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={confirmEdit}
-                >
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nueva ubicación"
+                  placeholderTextColor="#AAA"
+                  value={editedLocation}
+                  onChangeText={setEditedLocation}
+                />
+                <TouchableOpacity style={styles.confirmButton} onPress={confirmEdit}>
                   <Text style={styles.confirmButtonText}>Guardar</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setEditModalVisible(false)}>
@@ -350,7 +378,6 @@ export default function HomeScreen() {
           </Modal>
         )}
 
-        {/* Modal para asignar personal */}
         {assignModalVisible && targetProject && (
           <Modal animationType="slide" transparent visible={true}>
             <View style={styles.modalOverlay}>
@@ -358,35 +385,31 @@ export default function HomeScreen() {
                 <Text style={styles.modalTitle}>
                   Asignar personal a {targetProject.title}
                 </Text>
-
                 {personal.filter(p => p.estado === "libre").length === 0 ? (
                   <Text style={{ color: "#FFF" }}>No hay personal libre disponible.</Text>
                 ) : (
-                  personal
-                    .filter(p => p.estado === "libre")
-                    .map(p => (
-                      <TouchableOpacity
-                        key={p.id}
-                        style={[styles.confirmButton, { marginBottom: 6 }]}
-                        onPress={async () => {
-                          try {
-                            await updateDoc(doc(db, "personal", p.id), {
-                              estado: "ocupado",
-                              proyectoAsignado: targetProject.title,
-                            });
-                            setAssignModalVisible(false);
-                          } catch (err) {
-                            console.error("Error asignando personal:", err);
-                          }
-                        }}
-                      >
-                        <Text style={styles.confirmButtonText}>
-                          {p.nombre} ({p.cargo})
-                        </Text>
-                      </TouchableOpacity>
-                    ))
+                  personal.filter(p => p.estado === "libre").map(p => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.confirmButton, { marginBottom: 6 }]}
+                      onPress={async () => {
+                        try {
+                          await updateDoc(doc(db, "personal", p.id), {
+                            estado: "ocupado",
+                            proyectoAsignado: targetProject.title,
+                          });
+                          setAssignModalVisible(false);
+                        } catch (err) {
+                          console.error("Error asignando personal:", err);
+                        }
+                      }}
+                    >
+                      <Text style={styles.confirmButtonText}>
+                        {p.nombre} ({p.cargo})
+                      </Text>
+                    </TouchableOpacity>
+                  ))
                 )}
-
                 <TouchableOpacity onPress={() => setAssignModalVisible(false)}>
                   <Text style={styles.cancelText}>Cancelar</Text>
                 </TouchableOpacity>

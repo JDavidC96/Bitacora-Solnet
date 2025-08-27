@@ -10,10 +10,9 @@ export default function WelcomeScreen({ onFinish }) {
     // Guardamos que ya se vio el welcome
     await AsyncStorage.setItem('hasSeenWelcome', 'true');
 
-    // Si quieres ir primero al login:
+    // En caso de ir primero al login:
     router.replace('/LoginScreen');
     
-    // Además, por si recibiste la prop desde _layout.js
     if (onFinish) onFinish();
   };
 
