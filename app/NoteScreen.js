@@ -1,76 +1,104 @@
+// screens/NoteScreen.js
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { configureNotifications, showSaveNotification } from '../notifications';
+import { useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  StyleSheet,
+  Text,
+  View
+} from 'react-native';
 
-// Firebase
-import { addDoc, collection, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
+// Hooks personalizados
 import { useUser } from '../context/UserContext';
-import { db } from '../firebase/firebaseConfig';
+import { useNotes } from '../hooks/useNotes';
+import { useNotifications } from '../hooks/useNotifications';
+
+// Componentes
+import EditNoteModal from '../components/notes/EditNoteModal';
+import ImageUploader from '../components/notes/ImageUploader';
+import NavigationButtons from '../components/notes/NavigationButtons';
+import NoteEditor from '../components/notes/NoteEditor';
+import NotesHistory from '../components/notes/NotesHistory';
+
+// Servicios
+import { noteService } from '../services/noteService';
 
 export default function NoteScreen() {
-  const { id, title } = useLocalSearchParams();
+  const params = useLocalSearchParams();
   const router = useRouter();
-  const { role } = useUser();
+  const { role, user } = useUser();
 
-  const [author, setAuthor] = useState('');
+  // Procesar parámetros una sola vez con useMemo
+  const processedParams = useMemo(() => {
+    // Procesar parámetros (pueden venir como arrays)
+    const id = Array.isArray(params.id) ? params.id[0] : params.id;
+    const title = Array.isArray(params.title) ? params.title[0] : params.title;
+    
+    return {
+      id: id && id !== 'undefined' ? id : null,
+      title: title || 'Proyecto sin nombre'
+    };
+  }, [params.id, params.title]); // Solo dependemos de estos valores específicos
+
+  // Estados
   const [noteText, setNoteText] = useState('');
-  const [entries, setEntries] = useState([]);
-
-  // 👉 estados para edición
+  const [selectedImages, setSelectedImages] = useState([]);
   const [editModal, setEditModal] = useState(false);
   const [editText, setEditText] = useState('');
   const [editId, setEditId] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    configureNotifications();
+  // Hooks personalizados - usar processedParams.id directamente
+  const { notes, loading: notesLoading } = useNotes(processedParams.id);
+  useNotifications();
 
-    const q = query(
-      collection(db, 'proyectos', id, 'notas'),
-      orderBy('fechaISO', 'desc')
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setEntries(data);
-    });
+  // Permisos
+  const canWrite = ["Administrador", "Ingeniero", "Supervisor", "Tecnico"].includes(role);
 
-    return () => unsubscribe();
-  }, [id]);
+  // Handlers
+  const handleSaveNote = async () => {
+    if (!noteText.trim()) {
+      Alert.alert('Error', 'Debes escribir un texto antes de guardar.');
+      return;
+    }
 
-  const handleSave = async () => {
-    if (!noteText.trim() || !author.trim()) return;
+    if (!processedParams.id) {
+      Alert.alert('Error', 'No se pudo identificar el proyecto.');
+      return;
+    }
 
-    const now = new Date();
-    const fechaISO = now.toISOString().split('T')[0];
-    const hora = now.toLocaleTimeString();
-
-    const newEntry = {
-      fecha: `${fechaISO} ${hora}`,
-      fechaISO,
-      hora,
-      texto: noteText.trim(),
-      autor: author.trim(),
-      timestamp: now.getTime(), // 👈 guardamos timestamp en ms
-    };
-
+    setLoading(true);
     try {
-      await addDoc(collection(db, 'proyectos', id, 'notas'), newEntry);
-      await showSaveNotification();
+      await noteService.createNote(processedParams.id, {
+        text: noteText.trim(),
+        author: user?.displayName || user?.email || "Usuario desconocido",
+        images: selectedImages
+      });
+
+      Alert.alert('✅ Éxito', 'Entrada guardada correctamente');
+      
+      // Limpiar formulario
       setNoteText('');
-      setAuthor('');
+      setSelectedImages([]);
     } catch (error) {
       console.error('Error guardando nota:', error);
+      Alert.alert('❌ Error', 'No se pudo guardar la nota');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLongPress = (entry, index) => {
-    // Solo permitir en la primera (última añadida)
+  const handleEditNote = async (entry, index) => {
+    // Solo permitir editar la última nota dentro de los primeros 5 minutos
     if (index !== 0) return;
 
     const now = Date.now();
     const limite = 5 * 60 * 1000; // 5 minutos
     if (!entry.timestamp || now - entry.timestamp > limite) {
-      alert("Solo puedes editar la última nota dentro de los primeros 5 minutos.");
+      Alert.alert("Info", "Solo puedes editar la última nota dentro de los primeros 5 minutos.");
       return;
     }
 
@@ -79,150 +107,157 @@ export default function NoteScreen() {
     setEditModal(true);
   };
 
-  const handleUpdate = async () => {
-    if (!editId) return;
+  const handleUpdateNote = async () => {
+    if (!editId || !processedParams.id) return;
+    
     try {
-      const ref = doc(db, 'proyectos', id, 'notas', editId);
-      await updateDoc(ref, { texto: editText });
+      await noteService.updateNote(processedParams.id, editId, editText);
       setEditModal(false);
       setEditId(null);
+      Alert.alert('✅ Éxito', 'Nota actualizada correctamente');
     } catch (error) {
       console.error("Error actualizando nota:", error);
+      Alert.alert('❌ Error', 'No se pudo actualizar la nota');
     }
   };
 
-  const canWrite = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+  const handleAddImages = (newImages) => {
+    setSelectedImages(prev => [...prev, ...newImages]);
+  };
+
+  // Mostrar loading si no hay ID válido
+  if (!processedParams.id) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FFF" />
+        <Text style={styles.loadingText}>Cargando proyecto...</Text>
+        <Text style={styles.errorText}>Error: No se pudo cargar el proyecto</Text>
+        <Text style={styles.debugText}>Parámetros recibidos: {JSON.stringify(params)}</Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Bitácora para {title}</Text>
+    <LinearGradient colors={["#232526", "#414345"]} style={styles.container}>
+      <Text style={styles.title}>Bitácora para {processedParams.title}</Text>
 
-      {canWrite && (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Tu nombre"
-            placeholderTextColor="#aaa"
-            value={author}
-            onChangeText={setAuthor}
-          />
-
-          <TextInput
-            style={[styles.input, { height: 160, textAlignVertical: 'top' }]}
-            multiline
-            placeholder="Escribe tu entrada..."
-            placeholderTextColor="#aaa"
-            value={noteText}
-            onChangeText={setNoteText}
-          />
-
-          <TouchableOpacity style={styles.button} onPress={handleSave}>
-            <Text style={styles.buttonText}>💾 Guardar entrada</Text>
-          </TouchableOpacity>
-        </>
+      {canWrite ? (
+        <NoteEditor
+          noteText={noteText}
+          onNoteChange={setNoteText}
+          selectedImages={selectedImages}
+          onSave={handleSaveNote}
+          loading={loading}
+        />
+      ) : (
+        <View style={styles.readOnlyMessage}>
+          <Text style={styles.readOnlyText}>
+            ⚠️ Solo lectura: No tienes permisos para escribir en esta bitácora
+          </Text>
+        </View>
       )}
 
-      {/* === Botones de navegación === */}
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: '#38B2AC', marginTop: 10 }]}
-        onPress={() =>
-          router.push({ pathname: '/CalendarScreen', params: { id, title } })
-        }
-      >
-        <Text style={styles.buttonText}>📅 Ver Calendario</Text>
-      </TouchableOpacity>
+      {canWrite && (
+        <ImageUploader
+          onImagesSelected={handleAddImages}
+          selectedImages={selectedImages}
+          onClearImages={() => setSelectedImages([])}
+        />
+      )}
 
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: '#ECC94B', marginTop: 10 }]}
-        onPress={() =>
-          router.push({ pathname: '/ProjectStepScreen', params: { id, title } })
-        }
-      >
-        <Text style={styles.buttonText}>🛠️ Etapas del Proyecto</Text>
-      </TouchableOpacity>
+      <NavigationButtons
+        projectId={processedParams.id}
+        projectTitle={processedParams.title}
+      />
 
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: '#48BB78', marginTop: 10 }]}
-        onPress={() =>
-          router.push({ pathname: '/ProjectStockScreen', params: { projectId: id, title } })
-        }
-      >
-        <Text style={styles.buttonText}>📦 Inventario del Proyecto</Text>
-      </TouchableOpacity>
+      <NotesHistory
+        notes={notes}
+        loading={notesLoading}
+        onEditNote={handleEditNote}
+        projectId={processedParams.id}
+      />
 
-      {/* === Historial === */}
-      <ScrollView style={styles.historyBox}>
-        <Text style={styles.historyTitle}>Entradas anteriores:</Text>
-        {entries.length === 0 ? (
-          <Text style={{ color: '#888' }}>No hay entradas aún.</Text>
-        ) : (
-          entries.map((entry, idx) => (
-            <TouchableOpacity
-              key={entry.id}
-              style={styles.entryItem}
-              onLongPress={() => handleLongPress(entry, idx)}
-            >
-              <Text style={styles.entryDate}>{entry.fecha}</Text>
-              <Text style={styles.entryText}>
-                {entry.texto ? entry.texto : "(Vacía)"} — ✍️ {entry.autor || "Anónimo"}
-              </Text>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
+      <EditNoteModal
+        visible={editModal}
+        editText={editText}
+        onTextChange={setEditText}
+        onSave={handleUpdateNote}
+        onClose={() => setEditModal(false)}
+      />
 
-      {/* Modal para edición */}
-      <Modal visible={editModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={{ color: '#FFF', fontSize: 18, marginBottom: 12 }}>Editar nota</Text>
-            <TextInput
-              style={[styles.input, { height: 120, textAlignVertical: 'top' }]}
-              multiline
-              value={editText}
-              onChangeText={setEditText}
-            />
-            <TouchableOpacity style={styles.button} onPress={handleUpdate}>
-              <Text style={styles.buttonText}>💾 Guardar cambios</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setEditModal(false)}>
-              <Text style={{ color: '#F56565', textAlign: 'center', marginTop: 8 }}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
+      {loading && (
+        <LoadingOverlay message="Subiendo imágenes..." />
+      )}
+    </LinearGradient>
+  );
+}
+
+// Componente de carga overlay
+function LoadingOverlay({ message }) {
+  return (
+    <Modal transparent animationType="fade">
+      <View style={styles.loadingOverlay}>
+        <ActivityIndicator size="large" color="#FFF" />
+        <Text style={styles.loadingText}>{message}</Text>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1E1E2F', padding: 20 },
-  title: { fontSize: 22, color: '#FFF', marginBottom: 12 },
-  input: {
-    backgroundColor: '#2C2C3A',
-    color: '#FFF',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
+  container: {
+    flex: 1,
+    backgroundColor: '#1E1E2F',
+    padding: 20,
   },
-  button: {
-    backgroundColor: '#5A67D8',
-    padding: 14,
-    borderRadius: 8,
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1E1E2F',
+    padding: 20,
+  },
+  loadingText: {
+    color: '#FFF',
+    textAlign: 'center',
+    marginBottom: 10,
+    fontSize: 16,
+  },
+  errorText: {
+    color: '#F56565',
+    textAlign: 'center',
+    marginBottom: 10,
+    fontSize: 14,
+  },
+  debugText: {
+    color: '#CCC',
+    textAlign: 'center',
+    fontSize: 12,
     marginTop: 10,
+  },
+  title: {
+    fontSize: 22,
+    color: '#FFF',
+    marginBottom: 10,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  readOnlyMessage: {
+    backgroundColor: '#2C2C3A',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
     alignItems: 'center',
   },
-  buttonText: { color: '#FFF', fontWeight: 'bold' },
-  historyBox: { marginTop: 20 },
-  historyTitle: { fontSize: 18, color: '#FFF', marginBottom: 8 },
-  entryItem: {
-    backgroundColor: '#2C2C3A',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+  readOnlyText: {
+    color: '#ECC94B',
+    fontSize: 14,
+    textAlign: 'center',
   },
-  entryDate: { fontSize: 12, color: '#999', marginBottom: 4 },
-  entryText: { fontSize: 14, color: '#FFF' },
-  modalOverlay: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'center', alignItems: 'center' },
-  modalContainer: { backgroundColor: '#2C2C3A', padding: 24, borderRadius: 12, width: '85%' },
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });

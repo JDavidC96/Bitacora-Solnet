@@ -1,282 +1,316 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
-import { addDoc, collection, doc, onSnapshot, updateDoc } from "firebase/firestore";
-import { useEffect, useState } from "react";
-import { FlatList, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View, } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { FlatList, StyleSheet, Text, View } from "react-native";
 import { useUser } from "../context/UserContext";
-import { db } from "../firebase/firebaseConfig";
+
+// Hooks
+import { useInventoryModals } from "../hooks/useInventoryModals";
+import { useInventoryPermissions } from "../hooks/useInventoryPermissions";
+import { useProjectInventory } from "../hooks/useProjectInventory";
+import { useProjects } from "../hooks/useProjects";
+
+// Componentes
+import AddMaterialButton from "../components/inventory/project/AddMaterialButton";
+import EmptyInventory from "../components/inventory/project/EmptyInventory";
+import MaterialItem from "../components/inventory/project/MaterialItem";
+import SearchHeader from "../components/inventory/SearchHeader";
+
+// Modales
+import AddMaterialModal from "../components/inventory/project/AddMaterialModal";
+import MoveMaterialModal from "../components/inventory/project/MoveMaterialModal";
+import UpdateUsageModal from "../components/inventory/project/UpdateUsageModal";
+
+// Servicios
+import { inventoryService } from "../services/inventoryService";
 
 export default function ProjectStockScreen() {
-  const { projectId, title } = useLocalSearchParams();
+  const params = useLocalSearchParams();
   const { role, user } = useUser();
-  const [items, setItems] = useState([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [addModalVisible, setAddModalVisible] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [cantidadUsada, setCantidadUsada] = useState("");
-  const [nuevoNombre, setNuevoNombre] = useState("");
-  const [nuevaCantidad, setNuevaCantidad] = useState("");
-  const [nuevaUnidad, setNuevaUnidad] = useState("");
+
+  // Procesar parámetros correctamente
+  const [processedParams, setProcessedParams] = useState({ projectId: null, title: '' });
+  const prevParamsRef = useRef();
 
   useEffect(() => {
-    if (!projectId) return;
-
-    const q = collection(db, "proyectos", projectId, "inventario");
-    const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((d) => ({ idDoc: d.id, ...d.data() }));
-      setItems(data);
+    // Evitar procesamiento si los parámetros no han cambiado
+    const paramsString = JSON.stringify(params);
+    if (prevParamsRef.current === paramsString) {
+      return;
+    }
+    
+    prevParamsRef.current = paramsString;
+    
+    console.log('🔍 ProjectStockScreen - Parámetros recibidos:', params);
+    
+    // Buscar projectId en diferentes propiedades
+    const projectId = Array.isArray(params.projectId) ? params.projectId[0] : params.projectId;
+    const id = Array.isArray(params.id) ? params.id[0] : params.id;
+    const title = Array.isArray(params.title) ? params.title[0] : params.title;
+    
+    // Usar projectId primero, si no está usar id
+    const finalProjectId = projectId || id;
+    
+    setProcessedParams({
+      projectId: finalProjectId && finalProjectId !== 'undefined' ? finalProjectId : null,
+      title: title || 'Proyecto sin nombre'
     });
+  }, [params]);
 
-    return () => unsub();
-  }, [projectId]);
+  // Estados
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // === Manejar actualización de material usado ===
-  const handleUpdate = async () => {
-    if (!selectedItem || !cantidadUsada) return;
+  // Hooks personalizados - usar processedParams.projectId
+  const { items, loading: inventoryLoading, error: inventoryError } = useProjectInventory(processedParams.projectId);
+  const { projects: proyectos, loading: projectsLoading } = useProjects();
+  const { canAdd, canMove } = useInventoryPermissions(role);
+  const {
+    selectedItem,
+    loading: modalLoading,
+    setLoading: setModalLoading,
+    modals,
+    openUpdateModal,
+    openMoveModal,
+    openAddModal,
+    closeAll,
+    closeModal
+  } = useInventoryModals();
 
-    const usado = parseFloat(cantidadUsada);
-    if (isNaN(usado) || usado <= 0) {
-      alert("Ingresa una cantidad válida");
-      return;
-    }
-
-    const newCantidad = (selectedItem.cantidad || 0) - usado;
-    if (newCantidad < 0) {
-      alert("No puedes usar más de lo que hay en stock");
-      return;
-    }
-
+  // Función para registrar en el historial
+  const registerHistory = async (movementData) => {
     try {
-      const itemRef = doc(db, "proyectos", projectId, "inventario", selectedItem.idDoc);
-      await updateDoc(itemRef, {
-        cantidad: newCantidad,
-        lastUpdate: new Date().toISOString(),
-        updatedBy: user?.email || "Desconocido",
+      await inventoryService.registerMovement({
+        ...movementData,
+        usuario: user?.email,
+        fecha: new Date().toISOString()
       });
-
-      setModalVisible(false);
-      setCantidadUsada("");
-      setSelectedItem(null);
     } catch (error) {
-      console.error("Error al actualizar inventario:", error);
+      console.error('Error registrando en historial:', error);
     }
   };
 
-  // === Manejar agregar nuevo material ===
-  const handleAdd = async () => {
-    if (!nuevoNombre.trim() || !nuevaCantidad || !nuevaUnidad.trim()) {
-      alert("Completa todos los campos");
-      return;
-    }
+  // Filtrado, deduplicación Y ORDENAMIENTO ALFABÉTICO
+  const filteredItems = items
+    .filter((item) =>
+      item.nombre?.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    // ORDENAR ALFABÉTICAMENTE ASCENDENTE (A-Z)
+    .sort((a, b) => a.nombre?.localeCompare(b.nombre));
 
+  const dedupedItems = Array.from(new Map(filteredItems.map((i) => [i.idDoc, i])).values());
+
+  // Handlers para los modales que registran en historial
+  const handleAddMaterial = async (materialData) => {
+    setModalLoading(true);
     try {
-      await addDoc(collection(db, "proyectos", projectId, "inventario"), {
-        nombre: nuevoNombre.toLowerCase(),
-        cantidad: parseFloat(nuevaCantidad),
-        unidad: nuevaUnidad,
-        createdAt: new Date().toISOString(),
-        createdBy: user?.email || "Desconocido",
+      // Agregar material al proyecto
+      await inventoryService.addProjectMaterial(processedParams.projectId, materialData);
+      
+      // Registrar en historial
+      await registerHistory({
+        material: materialData.nombre,
+        tipo: 'entrada',
+        cantidad: materialData.cantidad,
+        origen: 'Inventario General',
+        destino: processedParams.title,
+        notas: 'Agregado directamente al proyecto'
       });
-
-      setNuevoNombre("");
-      setNuevaCantidad("");
-      setNuevaUnidad("");
-      setAddModalVisible(false);
+      
+      closeModal('add');
     } catch (error) {
-      console.error("Error al agregar material:", error);
+      console.error('Error agregando material:', error);
+      Alert.alert('Error', 'No se pudo agregar el material');
+    } finally {
+      setModalLoading(false);
     }
   };
 
-  const canEdit = ["Administrador", "Supervisor", "Almacenista"].includes(role);
-  const canAdd = role === "Almacenista";
+  const handleUpdateUsage = async (updateData) => {
+    setModalLoading(true);
+    try {
+      // Actualizar uso del material
+      await inventoryService.updateMaterialUsage(
+        processedParams.projectId,
+        selectedItem.idDoc,
+        updateData
+      );
+      
+      // Registrar en historial
+      await registerHistory({
+        material: selectedItem.nombre,
+        tipo: 'salida',
+        cantidad: updateData.cantidadUsada,
+        origen: processedParams.title,
+        destino: 'Uso en proyecto',
+        notas: updateData.notas || 'Material utilizado'
+      });
+      
+      closeModal('update');
+    } catch (error) {
+      console.error('Error actualizando uso:', error);
+      Alert.alert('Error', 'No se pudo actualizar el uso');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  const handleMoveMaterial = async (moveData) => {
+    setModalLoading(true);
+    try {
+      // Mover material
+      await inventoryService.moveMaterial(
+        processedParams.projectId,
+        selectedItem.idDoc,
+        moveData
+      );
+      
+      // Registrar en historial
+      const proyectoDestino = proyectos.find(p => p.id === moveData.proyectoDestino)?.title;
+      
+      await registerHistory({
+        material: selectedItem.nombre,
+        tipo: 'movimiento',
+        cantidad: moveData.cantidad,
+        origen: processedParams.title,
+        destino: proyectoDestino || 'Proyecto destino',
+        notas: 'Transferencia entre proyectos'
+      });
+      
+      closeModal('move');
+    } catch (error) {
+      console.error('Error moviendo material:', error);
+      Alert.alert('Error', 'No se pudo mover el material');
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  // Mostrar loading si no hay projectId válido
+  if (!processedParams.projectId) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>No se pudo cargar el inventario</Text>
+        <Text style={styles.debugText}>
+          ProjectId recibido: {processedParams.projectId}
+        </Text>
+        <Text style={styles.debugText}>
+          Parámetros: {JSON.stringify(params)}
+        </Text>
+      </View>
+    );
+  }
 
   return (
-    <LinearGradient colors={["#1E1E2F", "#2C2C3A"]} style={{ flex: 1 }}>
+    <LinearGradient colors={["#38A169", "#48BB78", "#81E6D9"]} style={{ flex: 1 }}>
       <View style={styles.container}>
-        <Text style={styles.title}>📦 Inventario de {title}</Text>
+        <Text style={styles.title}>📦 Inventario de {processedParams.title}</Text>
+        <Text style={styles.subtitle}>ID: {processedParams.projectId}</Text>
+
+        <SearchHeader
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          placeholder="Buscar material..."
+        />
 
         {canAdd && (
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => setAddModalVisible(true)}
-          >
-            <Text style={styles.addButtonText}>➕ Agregar Material</Text>
-          </TouchableOpacity>
+          <AddMaterialButton onPress={openAddModal} />
         )}
 
-        {items.length === 0 ? (
-          <Text style={styles.empty}>No hay materiales en este proyecto</Text>
+        {inventoryLoading ? (
+          <Text style={styles.empty}>Cargando inventario...</Text>
+        ) : dedupedItems.length === 0 ? (
+          <EmptyInventory />
         ) : (
           <FlatList
-            data={items}
-            keyExtractor={(item) => item.idDoc}
+            data={dedupedItems}
+            keyExtractor={(item) => String(item.idDoc)}
             renderItem={({ item }) => (
-              <View style={styles.item}>
-                <Text style={styles.itemName}>{item.nombre}</Text>
-                <Text style={styles.itemDetails}>
-                  {item.cantidad} {item.unidad}
-                </Text>
-                {item.updatedBy && (
-                  <Text style={styles.itemStamp}>
-                    Última actualización por {item.updatedBy}
-                  </Text>
-                )}
-                {canEdit && (
-                  <TouchableOpacity
-                    style={styles.updateButton}
-                    onPress={() => {
-                      setSelectedItem(item);
-                      setModalVisible(true);
-                    }}
-                  >
-                    <Text style={styles.updateButtonText}>✏️ Actualizar</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              <MaterialItem
+                item={item}
+                onUpdate={openUpdateModal}
+                onMove={openMoveModal}
+                canMove={canMove}
+              />
             )}
           />
         )}
       </View>
 
-      {/* === Modal para actualizar material === */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalBackground}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>
-              Actualizar uso de {selectedItem?.nombre}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Cantidad usada"
-              placeholderTextColor="#aaa"
-              keyboardType="numeric"
-              value={cantidadUsada}
-              onChangeText={setCantidadUsada}
-            />
-            <TouchableOpacity style={styles.saveButton} onPress={handleUpdate}>
-              <Text style={styles.saveButtonText}>💾 Guardar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.saveButton, { backgroundColor: "#E53E3E" }]}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.saveButtonText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Modales - pasar processedParams.projectId y handlers actualizados */}
+      <UpdateUsageModal
+        visible={modals.update}
+        onClose={() => closeModal('update')}
+        selectedItem={selectedItem}
+        projectId={processedParams.projectId}
+        user={user}
+        loading={modalLoading}
+        setLoading={setModalLoading}
+        onSave={handleUpdateUsage} // ✅ Nuevo handler con historial
+      />
 
-      {/* === Modal para agregar material (solo almacenista) === */}
-      <Modal
-        visible={addModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setAddModalVisible(false)}
-      >
-        <View style={styles.modalBackground}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>➕ Agregar nuevo material</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Nombre del material"
-              placeholderTextColor="#aaa"
-              value={nuevoNombre}
-              onChangeText={setNuevoNombre}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Cantidad"
-              placeholderTextColor="#aaa"
-              keyboardType="numeric"
-              value={nuevaCantidad}
-              onChangeText={setNuevaCantidad}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Unidad (ej: metros, kg, piezas)"
-              placeholderTextColor="#aaa"
-              value={nuevaUnidad}
-              onChangeText={setNuevaUnidad}
-            />
-            <TouchableOpacity style={styles.saveButton} onPress={handleAdd}>
-              <Text style={styles.saveButtonText}>💾 Guardar</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.saveButton, { backgroundColor: "#E53E3E" }]}
-              onPress={() => setAddModalVisible(false)}
-            >
-              <Text style={styles.saveButtonText}>Cancelar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <MoveMaterialModal
+        visible={modals.move}
+        onClose={() => closeModal('move')}
+        selectedItem={selectedItem}
+        projectId={processedParams.projectId}
+        role={role}
+        proyectos={proyectos}
+        loading={modalLoading}
+        setLoading={setModalLoading}
+        onMove={handleMoveMaterial} // ✅ Nuevo handler con historial
+      />
+
+      <AddMaterialModal
+        visible={modals.add}
+        onClose={() => closeModal('add')}
+        projectId={processedParams.projectId}
+        user={user}
+        loading={modalLoading}
+        setLoading={setModalLoading}
+        onSave={handleAddMaterial} // ✅ Nuevo handler con historial
+      />
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
-  title: { color: "#FFF", fontSize: 20, marginBottom: 16, fontWeight: "bold" },
-  empty: { color: "#888", textAlign: "center", marginTop: 20 },
-  item: {
-    padding: 12,
-    backgroundColor: "rgba(44,44,58,0.9)",
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  itemName: { color: "#FFF", fontSize: 16, fontWeight: "bold" },
-  itemDetails: { color: "#AAA", marginTop: 4 },
-  itemStamp: { color: "#38B2AC", fontSize: 12, marginTop: 4 },
-  updateButton: {
-    backgroundColor: "#3182CE",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    marginTop: 8,
-    alignItems: "center",
-  },
-  updateButtonText: { color: "#FFF", fontWeight: "600" },
-  addButton: {
-    backgroundColor: "#38A169",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  addButtonText: { color: "#FFF", fontSize: 16, fontWeight: "bold" },
-
-  // === Modal ===
-  modalBackground: {
+  loadingContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-  },
-  modalBox: {
-    backgroundColor: "#2C2C3A",
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1E1E2F',
     padding: 20,
-    borderRadius: 10,
-    width: "80%",
   },
-  modalTitle: { color: "#FFF", fontSize: 18, marginBottom: 12 },
-  input: {
-    backgroundColor: "#1E1E2F",
-    color: "#FFF",
-    borderRadius: 8,
-    padding: 10,
+  errorText: {
+    color: '#F56565',
+    fontSize: 18,
+    fontWeight: 'bold',
     marginBottom: 16,
+    textAlign: 'center',
   },
-  saveButton: {
-    backgroundColor: "#38A169",
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-    alignItems: "center",
+  debugText: {
+    color: '#CCC',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 8,
   },
-  saveButtonText: { color: "#FFF", fontWeight: "bold" },
+  title: { 
+    color: "#FFF", 
+    fontSize: 20, 
+    marginBottom: 8, 
+    fontWeight: "bold",
+    textAlign: "center" 
+  },
+  subtitle: {
+    color: "#E2E8F0",
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  empty: { 
+    color: "#888", 
+    textAlign: "center", 
+    marginTop: 20 
+  },
 });

@@ -2,24 +2,50 @@
 // Feriados (YYYY-MM-DD)
 
 export const HOLIDAYS_CO = [
-  "2025-01-01",
-  "2025-01-06",
-  "2025-03-24",
-  "2025-04-17",
-  "2025-04-18",
-  "2025-05-01",
-  "2025-06-02",
-  "2025-06-23",
-  "2025-06-30",
-  "2025-07-20",
+  // Festivos 2025
   "2025-08-07",
   "2025-08-18",
   "2025-10-13",
   "2025-11-03",
   "2025-11-17",
   "2025-12-08",
+  "2025-12-24",
   "2025-12-25",
+  "2025-12-26",
+  "2025-12-27",
+  "2025-12-28",
+  "2025-12-29",
+  "2025-12-30",
+  "2025-12-31",
+
+  // Festivos 2026 (colombianos nacionales)
+  "2026-01-01", // Año Nuevo
+  "2026-01-12", // Reyes Magos
+  "2026-03-23", // Día de San José
+  "2026-04-02", // Jueves Santo
+  "2026-04-03", // Viernes Santo
+  "2026-05-01", // Día del Trabajo
+  "2026-05-18", // Ascensión del Señor (lunes siguiente)
+  "2026-06-08", // Corpus Christi
+  "2026-06-15", // Sagrado Corazón
+  "2026-06-29", // San Pedro y San Pablo
+  "2026-07-20", // Independencia
+  "2026-08-07", // Batalla de Boyacá
+  "2026-08-17", // Asunción de la Virgen
+  "2026-10-12", // Día de la Raza / Diversidad Étnica
+  "2026-11-02", // Todos los Santos
+  "2026-11-16", // Independencia de Cartagena
+  "2026-12-08", // Inmaculada Concepción
+  "2026-12-24",
+  "2026-12-25",
+  "2026-12-26",
+  "2026-12-27",
+  "2026-12-28",
+  "2026-12-29",
+  "2026-12-30",
+  "2026-12-31",
 ];
+
 
 
 // Helpers de fecha (LOCAL, sin UTC)

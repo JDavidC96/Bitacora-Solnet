@@ -1,62 +1,74 @@
 {
-  "expo": {
-    "name": "Bitacora Solnet",
-    "slug": "bitacora-app",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/images/solnet.png",
-    "scheme": "bitacoraapp",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.terrallsolnet.bitacoraapp",
-      "infoPlist": {
+ "expo": {
+  "name": "Bitacora Solnet",
+  "slug": "bitacora-solnet",
+  "version": "1.0.0",
+  "orientation": "portrait",
+  "icon": "./assets/images/solnet_cuadro.png",
+  "scheme": "bitacoraapp",
+  "userInterfaceStyle": "automatic",
+  "newArchEnabled": true,
+  "ios": {
+    "supportsTablet": true,
+    "bundleIdentifier": "com.terrallsolnet.bitacoraapp",
+    "infoPlist": {
+        "NSUserTrackingUsageDescription": "Esta app usa notificaciones para recordarte tus proyectos.",
+        "UIBackgroundModes": ["remote-notification", "fetch"],
+        "NSCameraUsageDescription": "Se requiere acceso a la cámara para subir imágenes.",
+        "NSPhotoLibraryUsageDescription": "Se requiere acceso a la galería para subir imágenes.",
         "ITSAppUsesNonExemptEncryption": false
-      },
-      "runtimeVersion": {
-        "policy": "appVersion"
-      }
     },
-    "android": {
-      "package": "com.terrallsolnet.bitacoraapp",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/solnet.png",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
+  },
+
+  "android": {
+    "package": "com.terrallsolnet.bitacoraapp",
+    "adaptiveIcon": {
+      "foregroundImage": "./assets/images/solnet_squares_icon.png",
+      "backgroundColor": "#000000"
+    },
+    "edgeToEdgeEnabled": true,
+    "runtimeVersion": "1.0.0"
+  },
+  "web": {
+    "bundler": "metro",
+    "output": "static",
+    "favicon": "./assets/images/favicon.png"
+  },
+  "plugins": [
+    "expo-router",
+    [
+      "expo-splash-screen",
+      {
+        "image": "./assets/images/solnet_cuadro.png",
+        "imageWidth": 200,
+        "resizeMode": "contain",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true,
-      "runtimeVersion": "1.0.0"
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/solnet.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
-      "expo-web-browser"
-    ],
-    "experiments": {
-      "typedRoutes": true
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "aa580ca9-ed73-4cd2-9209-2be6631bde0c"
       }
-    },
-    "updates": {
-      "url": "https://u.expo.dev/aa580ca9-ed73-4cd2-9209-2be6631bde0c"
-    },
-    "owner": "davidc1296"
+    ],
+    "expo-web-browser",
+    [
+      "expo-image-picker",
+      {
+        "photosPermission": "Se requiere acceso a la galería para subir imágenes.",
+        "cameraPermission": "Se requiere acceso a la cámara para subir imágenes."
+      }
+    ]
+  ],
+  "experiments": {
+    "typedRoutes": true
+  },
+  "extra": {
+    "router": {},
+    "eas": {
+      "projectId": "aa624e48-8532-41c2-950a-6cec842928c1"
+    }
+  },
+  "owner": "davidc1296",
+  "updates": {
+    "url": "https://u.expo.dev/aa624e48-8532-41c2-950a-6cec842928c1"
   }
+}
 }

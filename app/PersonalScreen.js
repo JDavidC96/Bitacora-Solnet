@@ -1,187 +1,186 @@
-import { addDoc, collection, deleteDoc, doc, onSnapshot } from "firebase/firestore";
+// app/PersonalScreen.js
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { useUser } from "../context/UserContext"; // Acceder al rol del usuario
-import { db } from "../firebase/firebaseConfig";
+import { Alert, StyleSheet } from "react-native";
+import { useUser } from "../context/UserContext";
+
+// Componentes modulares
+import SearchHeader from "../components/inventory/SearchHeader";
+import PersonalActionsModal from "../components/personal/PersonalActionsModal";
+import PersonalForm from "../components/personal/PersonalForm";
+import PersonalHeader from "../components/personal/PersonalHeader";
+import PersonalList from "../components/personal/PersonalList";
+
+// Servicio existente
+import { personalService } from "../services/personalService";
 
 export default function PersonalScreen() {
-  const { role } = useUser(); // rol actual
-  const [personal, setPersonal] = useState([]);
-  const [nombre, setNombre] = useState("");
-  const [cargo, setCargo] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const router = useRouter();
+  const { role } = useUser();
 
-  // Escuchar cambios en la colección "personal"
+  // Estados
+  const [personnel, setPersonnel] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  // Cargar personal
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "personal"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setPersonal(data);
-    });
-    return () => unsubscribe();
+    loadPersonnel();
   }, []);
 
-  // Agregar nueva persona (solo admin/ingeniero)
-  const handleAdd = async () => {
-    if (!nombre.trim() || !cargo.trim()) {
-      Alert.alert("Error", "Debes ingresar nombre y cargo");
-      return;
-    }
-
+  const loadPersonnel = async () => {
     try {
-      await addDoc(collection(db, "personal"), {
-        nombre,
-        cargo,
-        estado: "libre",
-        proyectoAsignado: null,
-      });
-      setNombre("");
-      setCargo("");
-      setShowForm(false);
+      const personalData = await personalService.getAll();
+      setPersonnel(personalData);
     } catch (error) {
-      console.error("Error agregando personal:", error);
+      console.error("Error cargando personal:", error);
+      Alert.alert("Error", "No se pudo cargar el personal");
     }
   };
 
-  // Eliminar persona (solo admin)
-  const handleDelete = async (id, nombre) => {
-    Alert.alert("Confirmar", `¿Eliminar a ${nombre}?`, [
+  // Handlers actualizados para usar tu personalService
+  const handleAddPersonnel = async (personData) => {
+    setLoading(true);
+    try {
+      await personalService.create(personData);
+      setShowForm(false);
+      await loadPersonnel(); // Recargar la lista
+      Alert.alert("Éxito", "Persona creada correctamente");
+    } catch (error) {
+      console.error("Error agregando personal:", error);
+      Alert.alert("Error", error.message || "No se pudo crear la persona");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeletePersonnel = async (person) => {
+    Alert.alert("Confirmar", `¿Eliminar a ${person.nombre}?`, [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Eliminar",
         style: "destructive",
         onPress: async () => {
           try {
-            await deleteDoc(doc(db, "personal", id));
+            await personalService.delete(person.id, person.nombre);
+            await loadPersonnel(); // Recargar la lista
+            Alert.alert("Éxito", "Persona eliminada correctamente");
           } catch (error) {
             console.error("Error eliminando personal:", error);
+            Alert.alert("Error", error.message || "No se pudo eliminar la persona");
           }
         },
       },
     ]);
   };
 
-  // Renderizar cada persona
-  const renderItem = ({ item }) => (
-    <View style={styles.card}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.name}>{item.nombre}</Text>
-        <Text style={styles.role}>{item.cargo}</Text>
-        <Text style={{ color: item.estado === "libre" ? "lime" : "red" }}>
-          {item.estado === "libre"
-            ? "🟢 Libre"
-            : `🔴 Ocupado en ${item.proyectoAsignado || "un proyecto"}`}
-        </Text>
-      </View>
+  const handleAssignToWarehouse = async (person) => {
+    setLoading(true);
+    try {
+      await personalService.assignToProject(person.id, "Bodega");
+      setSelectedPerson(null);
+      await loadPersonnel(); // Recargar la lista
+      Alert.alert("Éxito", `${person.nombre} asignado a Bodega`);
+    } catch (error) {
+      console.error("Error asignando personal:", error);
+      Alert.alert("Error", error.message || "No se pudo asignar la persona");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      {/* Solo admin puede eliminar */}
-      {(role === "Administrador") && (
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() => handleDelete(item.id, item.nombre)}
-        >
-          <Text style={styles.deleteText}>🗑️</Text>
-        </TouchableOpacity>
-      )}
-    </View>
+  const handleAssignToRetie = async (person) => {
+    setLoading(true);
+    try {
+      await personalService.assignToProject(person.id, "Visita RETIE");
+      setSelectedPerson(null);
+      await loadPersonnel(); // Recargar la lista
+      Alert.alert("Éxito", `${person.nombre} asignado a Visita RETIE`);
+    } catch (error) {
+      console.error("Error asignando personal:", error);
+      Alert.alert("Error", error.message || "No se pudo asignar la persona");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReleasePersonnel = async (person) => {
+    setLoading(true);
+    try {
+      await personalService.liberar(person.id);
+      setSelectedPerson(null);
+      await loadPersonnel(); // Recargar la lista
+      Alert.alert("Éxito", `${person.nombre} liberado correctamente`);
+    } catch (error) {
+      console.error("Error liberando personal:", error);
+      Alert.alert("Error", error.message || "No se pudo liberar la persona");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNavigateToHistory = (person) => {
+    router.push({
+      pathname: "/PersonalHistoryScreen",
+      params: { id: person.id, nombre: person.nombre },
+    });
+  };
+
+  // Filtrar personal
+  const filteredPersonnel = personnel.filter((p) =>
+    p.nombre?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Gestión de Personal</Text>
-
-      {/* Solo admin/ingeniero pueden crear */}
-      {(role === "Administrador" || role === "Ingeniero") && (
-        <TouchableOpacity
-          style={[
-            styles.button,
-            { backgroundColor: showForm ? "#E53E3E" : "#38B2AC" },
-          ]}
-          onPress={() => setShowForm(!showForm)}
-        >
-          <Text style={styles.buttonText}>
-            {showForm ? "❌ Cancelar" : "➕ Crear Persona"}
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Formulario de creación */}
-      {showForm && (role === "Administrador" || role === "Ingeniero") && (
-        <View style={styles.formBox}>
-          <TextInput
-            style={styles.input}
-            placeholder="Nombre"
-            placeholderTextColor="#aaa"
-            value={nombre}
-            onChangeText={setNombre}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Cargo"
-            placeholderTextColor="#aaa"
-            value={cargo}
-            onChangeText={setCargo}
-          />
-          <TouchableOpacity style={styles.button} onPress={handleAdd}>
-            <Text style={styles.buttonText}>✅ Guardar</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Lista del personal (todos la ven) */}
-      <FlatList
-        data={personal}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={{ paddingBottom: 100 }}
+    <LinearGradient colors={['#11998e', '#38ef7d']} style={styles.container}>
+      
+      <PersonalHeader
+        role={role}
+        showForm={showForm}
+        onToggleForm={() => setShowForm(!showForm)}
       />
-    </View>
+
+      <SearchHeader
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        placeholder="Buscar personal..."
+      />
+
+      <PersonalForm
+        visible={showForm}
+        onSave={handleAddPersonnel}
+        onCancel={() => setShowForm(false)}
+      />
+
+      <PersonalList
+        personnel={filteredPersonnel}
+        onItemPress={handleNavigateToHistory}
+        onItemLongPress={setSelectedPerson}
+        onDelete={handleDeletePersonnel}
+        role={role}
+        loading={loading}
+        emptyMessage="No hay personal registrado"
+      />
+
+      <PersonalActionsModal
+        visible={!!selectedPerson}
+        selectedPerson={selectedPerson}
+        onAssignToWarehouse={handleAssignToWarehouse}
+        onAssignToRetie={handleAssignToRetie}
+        onRelease={handleReleasePersonnel}
+        onClose={() => setSelectedPerson(null)}
+      />
+
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#1E1E2F", padding: 16 },
-  title: {
-    fontSize: 22,
-    color: "#FFF",
-    marginBottom: 12,
-    fontWeight: "bold",
-    textAlign: "center",
+  container: { 
+    flex: 1, 
+    padding: 16 
   },
-  formBox: {
-    backgroundColor: "#2C2C3A",
-    padding: 16,
-    borderRadius: 10,
-    marginBottom: 20,
-  },
-  input: {
-    backgroundColor: "#1E1E2F",
-    color: "#FFF",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  button: {
-    backgroundColor: "#38B2AC",
-    padding: 14,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  buttonText: { color: "#FFF", fontSize: 16, fontWeight: "bold" },
-  card: {
-    backgroundColor: "#2C2C3A",
-    padding: 16,
-    borderRadius: 10,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  name: { color: "#FFF", fontSize: 18, fontWeight: "bold" },
-  role: { color: "#aaa", fontSize: 14, marginBottom: 6 },
-  deleteBtn: {
-    backgroundColor: "#E53E3E",
-    borderRadius: 6,
-    padding: 8,
-  },
-  deleteText: { color: "#FFF", fontSize: 18 },
 });

@@ -1,19 +1,20 @@
+// app/_layout.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DrawerContentScrollView, DrawerItem, DrawerItemList } from "@react-navigation/drawer";
 import { CommonActions } from "@react-navigation/native";
 import { Drawer } from "expo-router/drawer";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { useEffect, useState } from "react";
-import { useAuthState } from "react-firebase-hooks/auth";
+import { signOut } from "firebase/auth";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { UserProvider } from "../context/UserContext";
+import { UserProvider, useUser } from "../context/UserContext";
 import { auth } from "../firebase/firebaseConfig";
+import { usePermissions } from "../hooks/usePermissions"; // ← Importar usePermissions
 
 function CustomDrawerContent(props) {
-  const [user] = useAuthState(auth);
+  const { user } = useUser();
 
   const handleLogout = async () => {
     await signOut(auth);
+    await AsyncStorage.removeItem("userData");
     await AsyncStorage.removeItem("hasSeenWelcome");
 
     props.navigation.dispatch(
@@ -44,22 +45,11 @@ function CustomDrawerContent(props) {
   );
 }
 
-export default function RootLayout() {
-  const [initialRoute, setInitialRoute] = useState(null);
+function RootDrawer() {
+  const { user, loading } = useUser();
+  const { canProrrogaRole } = usePermissions(); // ← Obtener permisos aquí
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setInitialRoute("HomeScreen");
-      } else {
-        setInitialRoute("WelcomeScreen");
-      }
-    });
-
-    return unsubscribe;
-  }, []);
-
-  if (!initialRoute) {
+  if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" color="#5A67D8" />
@@ -68,80 +58,125 @@ export default function RootLayout() {
   }
 
   return (
+    <Drawer
+      backBehavior="history"
+      initialRouteName={user ? "HomeScreen" : "WelcomeScreen"}
+      screenOptions={{ headerShown: true }}
+      drawerContent={(props) => <CustomDrawerContent {...props} />}
+    >
+      <Drawer.Screen
+        name="WelcomeScreen"
+        options={{
+          title: "Inicio",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="index"
+        options={{
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="LoginScreen"
+        options={{
+          title: "Iniciar sesión",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="ImageViewerScreen"
+        options={{
+          title: "Visor de Imágenes",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen name="HomeScreen" 
+      options={{ title: "Inicio" }} />
+
+      <Drawer.Screen name="PersonalScreen" 
+      options={{ title: "Personal" }} />
+
+      <Drawer.Screen name="PersonalHistoryScreen" 
+      options={{ title: "Historial de Personal" }} />
+
+      {/* === Inventario === */}
+      <Drawer.Screen
+        name="GeneralStockScreen"
+        options={{ title: "Inventario General" }}
+      />
+
+      <Drawer.Screen
+        name="InventoryHistoryScreen"
+        options={{ title: "Historial de Inventario" }}
+      />
+
+      <Drawer.Screen
+        name="EquipmentStockScreen"
+        options={{ title: "Inventario de Herramientas" }}
+      />
+      <Drawer.Screen
+        name="NoteScreen"
+        options={{
+          title: "Notas",
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+      <Drawer.Screen
+        name="CalendarScreen"
+        options={{
+          title: "Calendario",
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+      <Drawer.Screen
+        name="ProjectStepScreen"
+        options={{
+          title: "Proyectos",
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="ProjectStockScreen"
+        options={{
+          title: "Inventario del Proyecto",
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="EquipmentHistoryScreen"
+        options={{
+          title: "Historial de Herramientas",
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      {/* NUEVA PANTALLA - SOLO PARA ADMINISTRADORES */}
+      <Drawer.Screen
+        name="AdminHistoryScreen"
+        options={{ 
+          title: "Historial Admin",
+          drawerItemStyle: canProrrogaRole ? {} : { display: "none" }
+        }}
+      />
+    </Drawer>
+  );
+}
+
+export default function RootLayout() {
+  return (
     <UserProvider>
-      <Drawer
-        backBehavior="history"
-        initialRouteName={initialRoute}
-        screenOptions={{ headerShown: true }}
-        drawerContent={(props) => <CustomDrawerContent {...props} />}
-      >
-        <Drawer.Screen
-          name="WelcomeScreen"
-          options={{
-            title: "Inicio",
-            headerShown: false,
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-        <Drawer.Screen
-          name="index"
-          options={{
-            headerShown: false,
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-
-        <Drawer.Screen
-          name="LoginScreen"
-          options={{
-            title: "Iniciar sesión",
-            headerShown: false,
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-        <Drawer.Screen
-          name="HomeScreen"
-          options={{ title: "Inicio" }}
-        />
-        <Drawer.Screen
-          name="PersonalScreen"
-          options={{ title: "Personal" }}
-        />
-        <Drawer.Screen
-          name="NoteScreen"
-          options={{
-            title: "Notas",
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-        <Drawer.Screen
-          name="CalendarScreen"
-          options={{
-            title: "Calendario",
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-        <Drawer.Screen
-          name="ProjectStepScreen"
-          options={{
-            title: "Proyectos",
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-
-        {/* === Inventario === */}
-        <Drawer.Screen
-          name="GeneralStockScreen"
-          options={{ title: "Inventario General" }}
-        />
-        <Drawer.Screen
-          name="ProjectStockScreen"
-          options={{
-            title: "Inventario del Proyecto",
-            drawerItemStyle: { display: "none" },
-          }}
-        />
-      </Drawer>
+      <RootDrawer />
     </UserProvider>
   );
 }
@@ -149,7 +184,7 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   footer: {
     borderTopWidth: 1,
-    borderColor: "#ccc",
+    borderColor: "#b3b3b3ff",
     padding: 16,
   },
   userEmail: {

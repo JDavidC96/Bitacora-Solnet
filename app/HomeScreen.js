@@ -1,422 +1,312 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
+// screens/HomeScreen.js
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Notifications from 'expo-notifications';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, updateDoc } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
-import { FlatList, Linking, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+
+// Hooks personalizados
 import { useUser } from '../context/UserContext';
-import { db } from '../firebase/firebaseConfig';
+import { useBackHandler } from '../hooks/useBackHandler';
+import { useMultiModal } from '../hooks/useModal';
+import { useNotifications } from '../hooks/useNotifications';
+import { usePersonal } from '../hooks/usePersonal';
+import { useProjects } from '../hooks/useProjects';
+
+// Servicios
+import { personalService } from '../services/personalService';
+import { projectService } from '../services/projectService';
+
+// Componentes modulares
+import AddProjectModal from '../components/home/AddProjectModal';
+import AssignPersonModal from '../components/home/AssignPersonModal';
+import EditProjectModal from '../components/home/EditProjectModal';
+import ProjectActionsModal from '../components/home/ProjectActionsModal';
+import ProjectList from '../components/home/ProjectList';
 
 export default function HomeScreen() {
-  const params = useLocalSearchParams();
   const router = useRouter();
-  const { role } = useUser();
-
-  const [projects, setProjects] = useState([]);
-  const [personal, setPersonal] = useState([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [assignModalVisible, setAssignModalVisible] = useState(false);
-
-  const [newProjectName, setNewProjectName] = useState('');
-  const [newProjectLocation, setNewProjectLocation] = useState('');
+  const params = useLocalSearchParams();
+  const { role, user } = useUser();
+  
+  // Estados
   const [selectedProject, setSelectedProject] = useState(null);
-  const [editedName, setEditedName] = useState('');
-  const [editedLocation, setEditedLocation] = useState('');
-  const [targetProject, setTargetProject] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showPicker, setShowPicker] = useState(false);
+  // Hooks personalizados
+  const { projects, loading: projectsLoading, error: projectsError } = useProjects();
+  const { personal, loading: personalLoading } = usePersonal();
+  const { modals, openModal, closeModal, closeAllModals } = useMultiModal({
+    add: false,
+    edit: false,
+    assign: false,
+    actions: false
+  });
+  
+  // Hooks de utilidad
+  useBackHandler();
+  useNotifications();
 
+  // Permisos
   const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
 
-  useEffect(() => {
-    const etapaUnsubs = [];
+  // ========== HANDLERS ==========
 
-    const unsubProjects = onSnapshot(collection(db, 'proyectos'), (snapshot) => {
-      const proyArray = snapshot.docs.map((d) => ({
-        idDoc: d.id,
-        ...d.data(),
-        progress: 0,
-      }));
-      setProjects(proyArray);
-
-      etapaUnsubs.forEach(unsub => unsub());
-      etapaUnsubs.length = 0;
-
-      proyArray.forEach((proj) => {
-        const unsubEtapas = onSnapshot(
-          collection(db, 'proyectos', proj.idDoc, 'etapas'),
-          (etapasSnap) => {
-            const total = etapasSnap.size;
-            const cumplidas = etapasSnap.docs.filter(
-              (et) => et.data().cumplida
-            ).length;
-            const progress = total > 0 ? cumplidas / total : 0;
-            setProjects((prev) =>
-              prev.map((p) =>
-                p.idDoc === proj.idDoc ? { ...p, progress } : p
-              )
-            );
-          }
-        );
-        etapaUnsubs.push(unsubEtapas);
-      });
-    });
-
-    const unsubPersonal = onSnapshot(collection(db, 'personal'), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setPersonal(data);
-    });
-
-    return () => {
-      unsubProjects();
-      unsubPersonal();
-      etapaUnsubs.forEach(unsub => unsub());
-    };
-  }, []);
-
-  useEffect(() => {
-    if (params?.saved === 'true') {
-      Notifications.scheduleNotificationAsync({
-        content: {
-          title: '✅ Entrada guardada',
-          body: 'Tu nota fue registrada correctamente.',
-        },
-        trigger: null,
-      });
-    }
-  }, [params]);
-
-  const handleAddProject = async () => {
-    if (newProjectName.trim() === '' || newProjectLocation.trim() === '') return;
+  const handleAddProject = async (projectData) => {
+    setLoading(true);
     try {
-      await addDoc(collection(db, 'proyectos'), {
-        title: newProjectName.trim(),
-        ubicacion: newProjectLocation.trim(),
-        startDate: selectedDate.toISOString(),
-      });
-      setNewProjectName('');
-      setNewProjectLocation('');
-      setSelectedDate(new Date());
-      setModalVisible(false);
+      const result = await projectService.create(projectData);
+      
+      // Crear etapas automáticamente
+      await projectService.createInitialStages(
+        result.id, 
+        projectData.date.toISOString().split('T')[0]
+      );
+      
+      closeAllModals();
+      Alert.alert('Éxito', 'Proyecto creado correctamente');
     } catch (error) {
       console.error('Error agregando proyecto:', error);
+      Alert.alert('Error', error.message || 'No se pudo crear el proyecto');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!selectedProject) return;
-    try {
-      const projectId = selectedProject.idDoc;
-      const projectTitle = selectedProject.title;
+ const handleEditProject = async (updates) => {
+  if (!selectedProject) return;
+  
+  setLoading(true);
+  try {
+    await projectService.update(selectedProject.id, updates);
+    closeAllModals();
+    setSelectedProject(null);
+    Alert.alert('Éxito', 'Proyecto actualizado correctamente');
+  } catch (error) {
+    console.error('Error editando proyecto:', error);
+    Alert.alert('Error', error.message || 'No se pudo actualizar el proyecto');
+  } finally {
+    setLoading(false);
+  }
+};
 
-      const etapasRef = collection(db, 'proyectos', projectId, 'etapas');
-      const notasRef = collection(db, 'proyectos', projectId, 'notas');
+  const handleDeleteProject = async () => {
+  if (!selectedProject) return;
+  
+  Alert.alert(
+    'Confirmar eliminación',
+    `¿Estás seguro de que quieres eliminar el proyecto "${selectedProject.title}"?`,
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: async () => {
+          setLoading(true);
+          try {
+            
+            // Verificar ID del proyecto
+            const projectIdToDelete = selectedProject.idDoc || selectedProject.id;
+            
+            if (!projectIdToDelete) {
+              throw new Error('No se pudo obtener el ID del proyecto');
+            }
+            
+            await projectService.delete(projectIdToDelete, selectedProject.title);
+            closeAllModals();
+            setSelectedProject(null);
+            Alert.alert('✅ Éxito', 'Proyecto eliminado correctamente');
+          } catch (error) {
+            console.error('❌ Error eliminando proyecto:', error);
+            Alert.alert('❌ Error', error.message || 'No se pudo eliminar el proyecto');
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+    ]
+  );
+};
 
-      const etapasSnap = await getDocs(etapasRef);
-      etapasSnap.forEach(async (et) => await deleteDoc(doc(etapasRef, et.id)));
-
-      const notasSnap = await getDocs(notasRef);
-      notasSnap.forEach(async (nt) => await deleteDoc(doc(notasRef, nt.id)));
-
-      const personalRef = collection(db, "personal");
-      const personalSnap = await getDocs(personalRef);
-
-      const updates = personalSnap.docs
-        .filter((p) => p.data().proyectoAsignado === projectTitle)
-        .map((p) =>
-          updateDoc(doc(db, "personal", p.id), {
-            estado: "libre",
-            proyectoAsignado: null,
-          })
-        );
-
-      await Promise.all(updates);
-
-      await deleteDoc(doc(db, 'proyectos', projectId));
-
-      setSelectedProject(null);
-      console.log("✅ Proyecto eliminado y personal liberado");
-    } catch (error) {
-      console.error('Error eliminando proyecto y liberando personal:', error);
-    }
+  const handleProjectLongPress = (project) => {
+    setSelectedProject(project);
+    openModal('actions');
   };
 
-  const confirmEdit = async () => {
-    try {
-      await updateDoc(doc(db, 'proyectos', selectedProject.idDoc), {
-        title: editedName,
-        ubicacion: editedLocation,
-      });
-      setEditModalVisible(false);
-      setSelectedProject(null);
-    } catch (error) {
-      console.error('Error editando proyecto:', error);
-    }
+  const handleProjectPress = (project) => {
+    router.push({
+      pathname: '/NoteScreen',
+      params: { 
+        id: project.id,  
+        title: project.title || "Proyecto"
+      },
+    });
   };
 
-  const renderItem = ({ item }) => {
-    const asignados = personal.filter(p => p.proyectoAsignado === item.title);
+  const handleAssignPerson = async (personId) => {
+  if (!selectedProject || !personId) return;
+  
+  setLoading(true);
+  try {
+    // Buscar la persona seleccionada
+    const persona = personal.find(p => p.id === personId);
+    if (!persona) {
+      throw new Error('Persona no encontrada');
+    }
 
-    return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() =>
-          router.push({
-            pathname: '/NoteScreen',
-            params: { id: item.idDoc, title: item.title || "Proyecto" },
-          })
-        }
-        onLongPress={() => canManage && setSelectedProject(item)}
-      >
-        <Text style={styles.cardText}>
-          {item.title ? item.title : "(Sin nombre)"}
-        </Text>
+    // Usar el servicio directamente (sin import dinámico)
+    await personalService.assignToProject(persona.id, selectedProject.title);
+    
+    closeAllModals();
+    setSelectedProject(null);
+    Alert.alert('Éxito', `${persona.nombre} asignado al proyecto`);
+  } catch (error) {
+    console.error('Error asignando personal:', error);
+    Alert.alert('Error', error.message || 'No se pudo asignar el personal');
+  } finally {
+    setLoading(false);
+  }
+};
 
-        {item.startDate ? (
-          <Text style={styles.dateText}>
-            📅 {new Date(item.startDate).toLocaleDateString()}
-          </Text>
-        ) : (
-          <Text style={styles.dateText}>📅 (Sin fecha)</Text>
-        )}
-
-        {item.ubicacion ? (
-          <Text
-            style={[styles.dateText, { color: '#4DA6FF', textDecorationLine: 'underline' }]}
-            onPress={() => {
-            const url = item.ubicacion.startsWith("http")
-            ? item.ubicacion
-            : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.ubicacion)}`;
-          Linking.openURL(url);
-       }}
-      >
-          📍 {item.ubicacion}
-      </Text>
-    ) : (
-      <Text style={styles.dateText}>📍 (Sin ubicación)</Text>
-    )}
-
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${(item.progress || 0) * 100}%` }]} />
-        </View>
-        <Text style={styles.progressText}>
-          {Math.round((item.progress || 0) * 100)}% completado
-        </Text>
-
-        {asignados.length > 0 ? (
-          <View style={{ marginTop: 8 }}>
-            <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '600' }}>👥 Personal asignado:</Text>
-            {asignados.map(p => (
-              <View key={p.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ color: '#DDD', fontSize: 13 }}>
-                  • {p.nombre} ({p.cargo})
-                </Text>
-                {canManage && (
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        await updateDoc(doc(db, "personal", p.id), {
-                          estado: "libre",
-                          proyectoAsignado: null,
-                        });
-                      } catch (err) {
-                        console.error("Error desasignando personal:", err);
-                      }
-                    }}
-                  >
-                    <Text style={{ color: "#E53E3E", fontSize: 13 }}>✖</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-          </View>
-        ) : (
-          <Text style={{ color: '#AAA', marginTop: 8 }}>👥 Sin personal asignado</Text>
-        )}
-      </TouchableOpacity>
+  const handleLiberarPersona = async (persona) => {
+    if (!persona) return;
+    
+    Alert.alert(
+      'Liberar personal',
+      `¿Liberar a ${persona.nombre} del proyecto?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Liberar',
+          onPress: async () => {
+            try {
+              const { personalService } = await import('../services/personalService');
+              await personalService.liberar(persona.id);
+              Alert.alert('Éxito', `${persona.nombre} liberado del proyecto`);
+            } catch (error) {
+              console.error('Error liberando personal:', error);
+              Alert.alert('Error', 'No se pudo liberar al personal');
+            }
+          },
+        },
+      ]
     );
   };
 
+  // ========== RENDER ==========
+
+  if (projectsError) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Error cargando proyectos</Text>
+        <Text style={styles.errorSubtext}>{projectsError.message}</Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => window.location.reload()}
+        >
+          <Text style={styles.retryButtonText}>Reintentar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  
+
   return (
     <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
-      <View style={styles.container}>
-        <Text style={styles.title}>Mis Proyectos</Text>
-
-        <FlatList
-          data={projects}
-          keyExtractor={(item) => item.idDoc}
-          renderItem={renderItem}
-          contentContainerStyle={styles.list}
+      <View style={{ flex: 1 }}>
+        {/* Imagen de fondo */}
+        <Image
+          source={require("../assets/images/terrall.png")}
+          style={styles.bgImage}
+          resizeMode="contain"
         />
 
-        {canManage && (
-          <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
-            <Text style={styles.addButtonText}>+ Agregar Proyecto</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.container}>
+          <Text style={styles.title}>Proyectos Solares</Text>
 
-        {canManage && modalVisible && (
-          <Modal animationType="slide" transparent visible={true}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContainer}>
-                <Text style={styles.modalTitle}>Nuevo Proyecto</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nombre del proyecto"
-                  placeholderTextColor="#AAA"
-                  value={newProjectName}
-                  onChangeText={setNewProjectName}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Ubicación del proyecto"
-                  placeholderTextColor="#AAA"
-                  value={newProjectLocation}
-                  onChangeText={setNewProjectLocation}
-                />
-                <Text style={styles.modalLabel}>📅 Fecha inicial</Text>
-                <TouchableOpacity style={styles.dateButton} onPress={() => setShowPicker(true)}>
-                  <Text style={styles.dateButtonText}>
-                    {selectedDate.toLocaleDateString()}
-                  </Text>
-                </TouchableOpacity>
-                {showPicker && (
-                  <DateTimePicker
-                    value={selectedDate}
-                    mode="date"
-                    display="default"
-                    onChange={(event, date) => {
-                      setShowPicker(false);
-                      if (date) setSelectedDate(date);
-                    }}
-                  />
-                )}
-                <TouchableOpacity style={styles.confirmButton} onPress={handleAddProject}>
-                  <Text style={styles.confirmButtonText}>Agregar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Text style={styles.cancelText}>Cancelar</Text>
-                </TouchableOpacity>
-              </View>
+          {/* Loading state */}
+          {(projectsLoading || personalLoading) && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#FF4500" />
+              <Text style={styles.loadingText}>Cargando proyectos...</Text>
             </View>
-          </Modal>
-        )}
+          )}
 
-        {selectedProject && !editModalVisible && (
-          <Modal animationType="fade" transparent visible={true}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContainer}>
-                <Text style={styles.modalTitle}>¿Qué deseas hacer?</Text>
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={() => {
-                    setTargetProject(selectedProject);
-                    setAssignModalVisible(true);
-                    setSelectedProject(null);
-                  }}
-                >
-                  <Text style={styles.confirmButtonText}>➕ Asignar personal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={() => {
-                    setEditedName(selectedProject.title);
-                    setEditedLocation(selectedProject.ubicacion || '');
-                    setEditModalVisible(true);
-                    setSelectedProject(null);
-                  }}
-                >
-                  <Text style={styles.confirmButtonText}>✏️ Editar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.confirmButton, { backgroundColor: '#E53E3E' }]}
-                  onPress={() => {
-                    handleDelete();
-                    setSelectedProject(null);
-                  }}
-                >
-                  <Text style={styles.confirmButtonText}>🗑️ Eliminar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setSelectedProject(null)}>
-                  <Text style={styles.cancelText}>Cancelar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-        )}
+          {/* Lista de proyectos */}
+          {!projectsLoading && (
+            <ProjectList
+              projects={projects}
+              personal={personal}
+              canManage={canManage}
+              onProjectPress={handleProjectPress}
+              onProjectLongPress={handleProjectLongPress}
+              onLiberarPersona={handleLiberarPersona}
+            />
+          )}
 
-        {editModalVisible && (
-          <Modal animationType="slide" transparent visible={true}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContainer}>
-                <Text style={styles.modalTitle}>Editar Proyecto</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nuevo nombre"
-                  placeholderTextColor="#AAA"
-                  value={editedName}
-                  onChangeText={setEditedName}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nueva ubicación"
-                  placeholderTextColor="#AAA"
-                  value={editedLocation}
-                  onChangeText={setEditedLocation}
-                />
-                <TouchableOpacity style={styles.confirmButton} onPress={confirmEdit}>
-                  <Text style={styles.confirmButtonText}>Guardar</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                  <Text style={styles.cancelText}>Cancelar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-        )}
+          {/* Botón flotante para agregar proyecto */}
+          {canManage && !projectsLoading && (
+            <TouchableOpacity
+              style={styles.fab}
+              onPress={() => openModal('add')}
+            >
+              <Text style={styles.fabText}>+</Text>
+            </TouchableOpacity>
+          )}
 
-        {assignModalVisible && targetProject && (
-          <Modal animationType="slide" transparent visible={true}>
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContainer}>
-                <Text style={styles.modalTitle}>
-                  Asignar personal a {targetProject.title}
-                </Text>
-                {personal.filter(p => p.estado === "libre").length === 0 ? (
-                  <Text style={{ color: "#FFF" }}>No hay personal libre disponible.</Text>
-                ) : (
-                  personal.filter(p => p.estado === "libre").map(p => (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={[styles.confirmButton, { marginBottom: 6 }]}
-                      onPress={async () => {
-                        try {
-                          await updateDoc(doc(db, "personal", p.id), {
-                            estado: "ocupado",
-                            proyectoAsignado: targetProject.title,
-                          });
-                          setAssignModalVisible(false);
-                        } catch (err) {
-                          console.error("Error asignando personal:", err);
-                        }
-                      }}
-                    >
-                      <Text style={styles.confirmButtonText}>
-                        {p.nombre} ({p.cargo})
-                      </Text>
-                    </TouchableOpacity>
-                  ))
-                )}
-                <TouchableOpacity onPress={() => setAssignModalVisible(false)}>
-                  <Text style={styles.cancelText}>Cancelar</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
-        )}
+          {/* ========== MODALES ========== */}
+
+          {/* Modal: Agregar Proyecto */}
+          <AddProjectModal
+            visible={modals.add}
+            onClose={closeAllModals}
+            onAddProject={handleAddProject}
+            loading={loading}
+          />
+
+          {/* Modal: Editar Proyecto */}
+          <EditProjectModal
+            visible={modals.edit}
+            project={selectedProject}
+            onClose={closeAllModals}
+            onSave={handleEditProject}
+            loading={loading}
+          />
+
+          {/* Modal: Asignar Personal */}
+          <AssignPersonModal
+            visible={modals.assign}
+            project={selectedProject}
+            personal={personal}
+            onClose={closeAllModals}
+            onAssign={handleAssignPerson}
+            loading={loading}
+          />
+
+          {/* Modal: Acciones del Proyecto */}
+          <ProjectActionsModal
+            visible={modals.actions}
+            project={selectedProject}
+            onClose={closeAllModals}
+            onEdit={() => {
+              closeModal('actions');
+              openModal('edit');
+            }}
+            onAssign={() => {
+              closeModal('actions');
+              openModal('assign');
+            }}
+            onDelete={handleDeleteProject}
+            canManage={canManage}
+          />
+        </View>
       </View>
     </LinearGradient>
   );
@@ -424,119 +314,85 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
     paddingTop: 50,
     paddingHorizontal: 16,
   },
   title: {
     fontSize: 26,
-    color: '#FFF',
+    color: '#000000',
     marginBottom: 16,
     textAlign: 'center',
-  },
-  list: {
-    paddingBottom: 20,
-  },
-  card: {
-    backgroundColor: '#2C2C3Aaa',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  cardText: {
-    color: '#FFF',
-    fontSize: 18,
     fontWeight: 'bold',
   },
-  dateText: {
-    color: '#DDD',
-    fontSize: 14,
-    marginTop: 4,
+  fab: {
+    position: "absolute",
+    right: 24,
+    bottom: 24,
+    backgroundColor: "#ff7300",
+    borderRadius: 30,
+    width: 60,
+    height: 60,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
   },
-  progressBar: {
-    height: 8,
-    backgroundColor: '#444',
-    borderRadius: 5,
-    marginTop: 8,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#48BB78',
-  },
-  progressText: {
+  fabText: {
     color: '#FFF',
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 28,
+    fontWeight: '900',
+    marginTop: -2,
   },
-  addButton: {
-    backgroundColor: '#5A67D8',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 16,
+  bgImage: {
+    position: "absolute",
+    width: 250,
+    height: 120,
+    marginTop: 390,
+    opacity: 0.4,
+    marginLeft: 85,
   },
-  addButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalOverlay: {
+  loadingContainer: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContainer: {
-    backgroundColor: '#2C2C3A',
-    padding: 20,
-    borderRadius: 12,
-    width: '80%',
+  loadingText: {
+    marginTop: 12,
+    color: '#000000',
+    fontSize: 16,
   },
-  modalTitle: {
-    color: '#FFF',
-    fontSize: 20,
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1E1E2F',
+    padding: 20,
+  },
+  errorText: {
+    color: '#F56565',
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 16,
+    marginBottom: 8,
     textAlign: 'center',
   },
-  input: {
-    backgroundColor: '#3A3A4A',
-    color: '#FFF',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
+  errorSubtext: {
+    color: '#CCC',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
   },
-  modalLabel: {
-    color: '#FFF',
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  dateButton: {
-    backgroundColor: '#3A3A4A',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  dateButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-  },
-  confirmButton: {
+  retryButton: {
     backgroundColor: '#5A67D8',
     paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 12,
   },
-  confirmButtonText: {
+  retryButtonText: {
     color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  cancelText: {
-    color: '#CCC',
-    textAlign: 'center',
-    marginTop: 8,
+    fontWeight: 'bold',
   },
 });
