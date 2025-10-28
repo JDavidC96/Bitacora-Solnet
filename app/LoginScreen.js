@@ -52,7 +52,7 @@ export default function LoginScreen() {
           setEmail(savedCredentials.email || '');
           setPassword(savedCredentials.password || '');
           
-          // Notificar tareas atrasadas al iniciar la app
+          // ✅ Notificar solo tareas atrasadas inmediatas (no reprogramar todo)
           await notifyDelayedTasks();
         }
       } catch (error) {
@@ -96,7 +96,7 @@ export default function LoginScreen() {
         setRole(result.role);
       }
 
-      // Notificar tareas atrasadas
+      // ✅ Notificar solo tareas atrasadas inmediatas (no reprogramar todo)
       await notifyDelayedTasks();
 
       setLoading(false);

@@ -30,6 +30,7 @@ import AssignPersonModal from '../components/home/AssignPersonModal';
 import EditProjectModal from '../components/home/EditProjectModal';
 import ProjectActionsModal from '../components/home/ProjectActionsModal';
 import ProjectList from '../components/home/ProjectList';
+import SearchModal from '../components/home/SearchModal';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -47,7 +48,8 @@ export default function HomeScreen() {
     add: false,
     edit: false,
     assign: false,
-    actions: false
+    actions: false,
+    search: false
   });
   
   // Hooks de utilidad
@@ -200,6 +202,14 @@ export default function HomeScreen() {
     );
   };
 
+  // ORDENAR POR FECHA DE CREACIÓN (más recientes primero)
+  const sortedProjects = projects
+    .sort((a, b) => {
+      const dateA = a.createdAt || a.startDate || 0;
+      const dateB = b.createdAt || b.startDate || 0;
+      return new Date(dateB) - new Date(dateA);
+    });
+
   // ========== RENDER ==========
 
   if (projectsError) {
@@ -242,7 +252,7 @@ export default function HomeScreen() {
           {/* Lista de proyectos */}
           {!projectsLoading && (
             <ProjectList
-              projects={projects}
+              projects={sortedProjects}
               personal={personal}
               canManage={canManage}
               onProjectPress={handleProjectPress}
@@ -251,14 +261,25 @@ export default function HomeScreen() {
             />
           )}
 
-          {/* Botón flotante para agregar proyecto */}
+          {/* Botones flotantes */}
           {canManage && !projectsLoading && (
-            <TouchableOpacity
-              style={styles.fab}
-              onPress={() => openModal('add')}
-            >
-              <Text style={styles.fabText}>+</Text>
-            </TouchableOpacity>
+            <View style={styles.fabContainer}>
+              {/* Botón de búsqueda */}
+              <TouchableOpacity
+                style={[styles.fab, styles.searchFab]}
+                onPress={() => openModal('search')}
+              >
+                <Text style={styles.fabText}>🔍</Text>
+              </TouchableOpacity>
+
+              {/* Botón de agregar proyecto */}
+              <TouchableOpacity
+                style={[styles.fab, styles.addFab]}
+                onPress={() => openModal('add')}
+              >
+                <Text style={styles.fabText}>+</Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {/* ========== MODALES ========== */}
@@ -305,6 +326,17 @@ export default function HomeScreen() {
             }}
             onDelete={handleDeleteProject}
             canManage={canManage}
+            loading={loading}
+          />
+
+          {/* Modal: Buscar Proyectos */}
+          <SearchModal
+            visible={modals.search}
+            onClose={closeAllModals}
+            projects={projects}
+            personal={personal}
+            onProjectPress={handleProjectPress}
+            onProjectLongPress={handleProjectLongPress}
           />
         </View>
       </View>
@@ -325,11 +357,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: 'bold',
   },
-  fab: {
+  fabContainer: {
     position: "absolute",
     right: 24,
     bottom: 24,
-    backgroundColor: "#ff7300",
+    alignItems: "center",
+    gap: 16,
+  },
+  fab: {
     borderRadius: 30,
     width: 60,
     height: 60,
@@ -340,6 +375,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
+  },
+  searchFab: {
+    backgroundColor: "#3182CE", // Azul para búsqueda
+  },
+  addFab: {
+    backgroundColor: "#ff7300", // Naranja para agregar
   },
   fabText: {
     color: '#FFF',

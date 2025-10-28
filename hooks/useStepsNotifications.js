@@ -12,9 +12,18 @@ Notifications.setNotificationHandler({
   }),
 });
 
-export const useStepsNotifications = (tasks, projectTitle) => {
+export const useStepsNotifications = (tasks, projectTitle, projectId) => {
   const timerRef = useRef(null);
   const scheduledKeysRef = useRef(new Set());
+  const lastTaskHashRef = useRef('');
+
+  // Función para generar un hash de las tareas actuales
+  const getTasksHash = (tasks) => {
+    if (!tasks || tasks.length === 0) return 'empty';
+    return tasks.map(t => 
+      `${t.idDoc}-${t.cumplida}-${t.fechaInicio}-${t.fechaFin}-${t.titulo}`
+    ).join('|');
+  };
 
   // Configurar canal de notificaciones
   useEffect(() => {
@@ -37,17 +46,31 @@ export const useStepsNotifications = (tasks, projectTitle) => {
     setupNotifications();
   }, []);
 
-  const sendNotification = async (title, body, trigger = null, key = null) => {
+  const sendNotification = async (title, body, trigger = null, key = null, projectId = null, taskId = null) => {
     try {
-      if (key && scheduledKeysRef.current.has(key)) return;
+      if (key && scheduledKeysRef.current.has(key)) {
+        console.log(`⚠️ Notificación duplicada omitida: ${key}`);
+        return;
+      }
       if (key) scheduledKeysRef.current.add(key);
 
       await Notifications.scheduleNotificationAsync({
-        content: { title, body },
+        content: { 
+          title, 
+          body,
+          data: {
+            projectId: projectId || '',
+            taskId: taskId || '',
+            screen: 'ProjectStepScreen',
+            type: 'task_alert'
+          }
+        },
         trigger: trigger instanceof Date ? { type: 'date', date: trigger } : trigger,
       });
+      
+      console.log(`✅ Notificación programada: ${title}`);
     } catch (e) {
-      console.error('Error programando notificación:', e);
+      console.error('❌ Error programando notificación:', e);
     }
   };
 
@@ -65,6 +88,16 @@ export const useStepsNotifications = (tasks, projectTitle) => {
   useEffect(() => {
     if (!tasks || tasks.length === 0) return;
 
+    const currentHash = getTasksHash(tasks);
+    
+    if (currentHash === lastTaskHashRef.current) {
+      console.log('⚡ Tareas sin cambios, omitiendo reprocesamiento de notificaciones');
+      return;
+    }
+    
+    console.log('🔄 Procesando notificaciones para tareas actualizadas');
+    lastTaskHashRef.current = currentHash;
+
     const revisarYProgramar = () => {
       const now = new Date();
       const hoyISO = now.toISOString().split('T')[0];
@@ -73,46 +106,58 @@ export const useStepsNotifications = (tasks, projectTitle) => {
         const estado = getEstado(t);
         const emoji = estadoEmoji(estado);
 
+        // Notificación inmediata: Tarea inicia hoy
         if (t.fechaInicio === hoyISO) {
           sendNotification(
             `${emoji} [${projectTitle}]: Tarea inicia: ${t.titulo}`,
-            `La tarea "${t.titulo}" comienza hoy (${t.fechaInicio}).`,
+            `La tarea "${t.titulo}" del proyecto "${projectTitle}" comienza hoy (${t.fechaInicio}).`,
             null,
-            `${t.idDoc}_start_today`
+            `${t.idDoc}_start_today_${hoyISO}`,
+            projectId,
+            t.idDoc
           );
         }
 
+        // Notificación inmediata: Tarea en retraso
         if (!t.cumplida && new Date(hoyISO) > new Date(t.fechaFin)) {
           sendNotification(
             `${emoji} [${projectTitle}]: Retraso en: ${t.titulo}`,
-            `La tarea debía terminar el ${t.fechaFin} y sigue pendiente.`,
+            `La tarea "${t.titulo}" del proyecto "${projectTitle}" debía terminar el ${t.fechaFin} y sigue pendiente.`,
             null,
-            `${t.idDoc}_delay`
+            `${t.idDoc}_delay_${hoyISO}`,
+            projectId,
+            t.idDoc
           );
         }
 
+        // Notificación programada: Inicio de tarea
         if (t.fechaInicio) {
           const startKey = `${t.idDoc}_start_${t.fechaInicio}`;
           const startTrigger = new Date(`${t.fechaInicio}T09:00:00`);
           if (startTrigger > now) {
             sendNotification(
-              `${estadoEmoji('pendiente')} Inicio de ${t.titulo}`,
-              `Hoy inicia la tarea "${t.titulo}".`,
+              `${estadoEmoji('pendiente')} [${projectTitle}]: Inicio de ${t.titulo}`,
+              `La tarea "${t.titulo}" del proyecto "${projectTitle}" inicia hoy.`,
               startTrigger,
-              startKey
+              startKey,
+              projectId,
+              t.idDoc
             );
           }
         }
 
+        // Notificación programada: Fin de tarea
         if (t.fechaFin && !t.cumplida) {
           const endKey = `${t.idDoc}_end_${t.fechaFin}`;
           const endTrigger = new Date(`${t.fechaFin}T17:00:00`);
           if (endTrigger > now) {
             sendNotification(
-              `${estadoEmoji('pendiente')} Vence ${t.titulo}`,
-              `Hoy vence la tarea "${t.titulo}".`,
+              `${estadoEmoji('pendiente')} [${projectTitle}]: Vence ${t.titulo}`,
+              `La tarea "${t.titulo}" del proyecto "${projectTitle}" vence hoy.`,
               endTrigger,
-              endKey
+              endKey,
+              projectId,
+              t.idDoc
             );
           }
         }
@@ -122,7 +167,9 @@ export const useStepsNotifications = (tasks, projectTitle) => {
     revisarYProgramar();
 
     const actualizarAMedianoche = async () => {
+      console.log('🌙 Actualizando notificaciones para nuevo día');
       await Notifications.cancelAllScheduledNotificationsAsync();
+      scheduledKeysRef.current.clear();
       revisarYProgramar();
     };
 
@@ -142,5 +189,5 @@ export const useStepsNotifications = (tasks, projectTitle) => {
         clearInterval(timerRef.current);
       }
     };
-  }, [tasks, projectTitle]);
+  }, [tasks, projectTitle, projectId]);
 };

@@ -53,19 +53,45 @@ export default function ProjectList({
   };
 
   return (
-    <FlatList
-      data={projects}
-      keyExtractor={keyExtractor}
-      renderItem={renderItem}
-      contentContainerStyle={styles.list}
-      showsVerticalScrollIndicator={false}
-    />
+    <View style={styles.container}>
+      {/* Información de resultados */}
+      {projects.length > 0 && (
+        <View style={styles.resultsHeader}>
+          <Text style={styles.resultsText}>
+            Mostrando {projects.length} proyecto{projects.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
+      )}
+      
+      <FlatList
+        data={projects}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   list: {
     paddingBottom: 120,
+  },
+  resultsHeader: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  resultsText: {
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '500',
   },
   loadingContainer: {
     flex: 1,

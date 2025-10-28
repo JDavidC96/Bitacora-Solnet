@@ -1,7 +1,7 @@
 // app/GeneralStockScreen.js
 import { LinearGradient } from "expo-linear-gradient";
 import { useState } from 'react';
-import { Alert, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 
 // Hooks personalizados - desde la raíz
 import { useUser } from "../context/UserContext";
@@ -28,6 +28,7 @@ export default function GeneralStockScreen() {
   const [editingItem, setEditingItem] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false); // Nuevo estado para acciones específicas
 
   // Hooks personalizados
   const { items, loading: inventoryLoading } = useGeneralInventory();
@@ -38,7 +39,7 @@ export default function GeneralStockScreen() {
 
   // Handlers
   const handleSaveItem = async (itemData) => {
-    setLoading(true);
+    setActionLoading(true); // Usar actionLoading para esta operación
     try {
       if (editingItem) {
         await inventoryService.updateGeneralItem(editingItem.id, itemData);
@@ -55,7 +56,7 @@ export default function GeneralStockScreen() {
       console.error('Error guardando ítem:', error);
       Alert.alert('Error', error.message || 'No se pudo guardar el ítem');
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
@@ -64,7 +65,7 @@ export default function GeneralStockScreen() {
     setModalVisible(true);
   };
 
-  const handleDeleteItem = async (itemId, item) => { // ✅ Recibir el item completo
+  const handleDeleteItem = async (itemId, item) => {
     Alert.alert(
       'Eliminar ítem',
       '¿Estás seguro de que quieres eliminar este ítem?',
@@ -74,6 +75,7 @@ export default function GeneralStockScreen() {
           text: 'Eliminar',
           style: 'destructive',
           onPress: async () => {
+            setActionLoading(true); // Activar loading para eliminación
             try {
               // ✅ Usar la versión con historial
               await inventoryService.deleteGeneralItemWithHistory(
@@ -86,6 +88,8 @@ export default function GeneralStockScreen() {
             } catch (error) {
               console.error('Error eliminando ítem:', error);
               Alert.alert('Error', 'No se pudo eliminar el ítem');
+            } finally {
+              setActionLoading(false); // Desactivar loading
             }
           },
         },
@@ -99,7 +103,7 @@ export default function GeneralStockScreen() {
   };
 
   const handleMoveConfirm = async (moveData) => {
-    setLoading(true);
+    setActionLoading(true); // Usar actionLoading para mover
     try {
       // Cambiar a moveToProjectWithHistory
       await inventoryService.moveToProjectWithHistory({
@@ -118,7 +122,7 @@ export default function GeneralStockScreen() {
       console.error('Error moviendo ítem:', error);
       Alert.alert('Error', error.message || 'No se pudo mover el ítem');
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
@@ -141,6 +145,14 @@ export default function GeneralStockScreen() {
     <LinearGradient colors={["#6a11cb", "#2575fc"]} style={styles.container}>
       <Text style={styles.title}>Inventario General ({role})</Text>
 
+      {/* Mostrar loading general si está cargando */}
+      {actionLoading && (
+        <View style={styles.globalLoadingContainer}>
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.globalLoadingText}>Procesando...</Text>
+        </View>
+      )}
+
       <SearchHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -155,7 +167,7 @@ export default function GeneralStockScreen() {
         items={filteredItems}
         loading={inventoryLoading}
         onEditItem={handleEditItem}
-        onDeleteItem={handleDeleteItem} // ✅ Pasar el item completo
+        onDeleteItem={handleDeleteItem}
         onMoveItem={handleMoveItem}
         canEdit={canEdit}
         emptyMessage="No hay ítems en el inventario general"
@@ -167,7 +179,7 @@ export default function GeneralStockScreen() {
         editingItem={editingItem}
         onSave={handleSaveItem}
         onClose={handleCloseModals}
-        loading={loading}
+        loading={actionLoading} // Pasar el estado de loading
       />
 
       {/* Modal Mover Ítem */}
@@ -177,7 +189,7 @@ export default function GeneralStockScreen() {
         projects={projects}
         onMove={handleMoveConfirm}
         onClose={handleCloseModals}
-        loading={loading}
+        loading={actionLoading} // Pasar el estado de loading
       />
     </LinearGradient>
   );
@@ -194,5 +206,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontWeight: 'bold',
     textAlign: 'center',
+  },
+  globalLoadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  globalLoadingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginTop: 12,
+    fontWeight: '500',
   },
 });

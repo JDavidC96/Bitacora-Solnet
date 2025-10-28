@@ -13,35 +13,34 @@ import { useProjectData } from '../hooks/useProjectData';
 import { useStepsNotifications } from '../hooks/useStepsNotifications';
 import { useTasks } from '../hooks/useTasks';
 
-export default function ProjectScreen() {
+export default function ProjectStepScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const [projectId, setProjectId] = useState(null);
   const [projectTitle, setProjectTitle] = useState('');
-  
-  // Procesar parámetros correctamente
+  const [focusedTask, setFocusedTask] = useState(null);
+
   useEffect(() => {
-    console.log('🔍 Parámetros recibidos en ProjectScreen:', params);
+    console.log('🔍 Parámetros recibidos en ProjectStepScreen:', params);
     
-    // Extraer id - manejar diferentes formatos
     let id = params.id;
-    if (Array.isArray(id)) {
-      id = id[0]; // Tomar el primer elemento si es array
-    }
+    if (Array.isArray(id)) id = id[0];
     
-    // Extraer title
     let title = params.title;
-    if (Array.isArray(title)) {
-      title = title[0];
-    }
+    if (Array.isArray(title)) title = title[0];
     
-    console.log('📋 ID procesado:', id);
-    console.log('📋 Title procesado:', title);
+    let focused = params.focusedTask;
+    if (Array.isArray(focused)) focused = focused[0];
     
     if (id && typeof id === 'string' && id !== 'undefined') {
       setProjectId(id);
       setProjectTitle(title || 'Proyecto sin nombre');
+      setFocusedTask(focused || null);
+      
       console.log('✅ Project ID establecido:', id);
+      if (focused) {
+        console.log('🎯 Tarea enfocada desde notificación:', focused);
+      }
     } else {
       console.log('❌ ID no válido:', id);
     }
@@ -51,9 +50,23 @@ export default function ProjectScreen() {
   const { projectStartISO, handleChangeStartDate, showDatePicker, setShowDatePicker } = useProjectData(projectId);
   const { tasks, prorrogaModal, setProrrogaModal, prorrogaTarget, setProrrogaTarget, prorrogaDias, setProrrogaDias, applyProrroga, toggleCumplida, openProrroga } = useTasks(projectId, projectStartISO, canMarkStateRole, canProrrogaRole);
   
-  useStepsNotifications(tasks, projectTitle);
+  useStepsNotifications(tasks, projectTitle, projectId);
 
-  // Mostrar loading si no hay ID válido
+  // Efecto para manejar la tarea enfocada desde la notificación
+  useEffect(() => {
+    if (focusedTask && tasks.length > 0) {
+      console.log('🎯 Buscando tarea enfocada:', focusedTask);
+      const taskToFocus = tasks.find(t => t.idDoc === focusedTask);
+      if (taskToFocus) {
+        console.log('✅ Tarea enfocada encontrada:', taskToFocus.titulo);
+        // Aquí puedes implementar scroll automático o highlight
+        // Por ejemplo: scrollToTask(focusedTask);
+      } else {
+        console.log('❌ Tarea enfocada no encontrada en las tareas actuales');
+      }
+    }
+  }, [focusedTask, tasks]);
+
   if (!projectId) {
     return (
       <View style={styles.loadingContainer}>
@@ -74,6 +87,9 @@ export default function ProjectScreen() {
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Cargando proyecto: {projectId}</Text>
         <Text style={styles.loadingText}>Título: {projectTitle}</Text>
+        {focusedTask && (
+          <Text style={styles.loadingText}>Tarea enfocada: {focusedTask}</Text>
+        )}
       </View>
     );
   }
@@ -96,6 +112,7 @@ export default function ProjectScreen() {
           canProrrogaRole={canProrrogaRole}
           toggleCumplida={toggleCumplida}
           openProrroga={openProrroga}
+          focusedTask={focusedTask}
         />
       </ScrollView>
 

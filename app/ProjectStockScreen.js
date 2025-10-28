@@ -1,7 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, View } from "react-native";
 import { useUser } from "../context/UserContext";
 
 // Hooks
@@ -59,6 +59,7 @@ export default function ProjectStockScreen() {
 
   // Estados
   const [searchQuery, setSearchQuery] = useState("");
+  const [globalLoading, setGlobalLoading] = useState(false); // Nuevo estado para loading global
 
   // Hooks personalizados - usar processedParams.projectId
   const { items, loading: inventoryLoading, error: inventoryError } = useProjectInventory(processedParams.projectId);
@@ -102,6 +103,7 @@ export default function ProjectStockScreen() {
   // Handlers para los modales que registran en historial
   const handleAddMaterial = async (materialData) => {
     setModalLoading(true);
+    setGlobalLoading(true); // Activar loading global
     try {
       // Agregar material al proyecto
       await inventoryService.addProjectMaterial(processedParams.projectId, materialData);
@@ -117,16 +119,19 @@ export default function ProjectStockScreen() {
       });
       
       closeModal('add');
+      Alert.alert('Éxito', 'Material agregado correctamente');
     } catch (error) {
       console.error('Error agregando material:', error);
       Alert.alert('Error', 'No se pudo agregar el material');
     } finally {
       setModalLoading(false);
+      setGlobalLoading(false); // Desactivar loading global
     }
   };
 
   const handleUpdateUsage = async (updateData) => {
     setModalLoading(true);
+    setGlobalLoading(true); // Activar loading global
     try {
       // Actualizar uso del material
       await inventoryService.updateMaterialUsage(
@@ -146,16 +151,19 @@ export default function ProjectStockScreen() {
       });
       
       closeModal('update');
+      Alert.alert('Éxito', 'Uso actualizado correctamente');
     } catch (error) {
       console.error('Error actualizando uso:', error);
       Alert.alert('Error', 'No se pudo actualizar el uso');
     } finally {
       setModalLoading(false);
+      setGlobalLoading(false); // Desactivar loading global
     }
   };
 
   const handleMoveMaterial = async (moveData) => {
     setModalLoading(true);
+    setGlobalLoading(true); // Activar loading global
     try {
       // Mover material
       await inventoryService.moveMaterial(
@@ -177,11 +185,13 @@ export default function ProjectStockScreen() {
       });
       
       closeModal('move');
+      Alert.alert('Éxito', 'Material movido correctamente');
     } catch (error) {
       console.error('Error moviendo material:', error);
       Alert.alert('Error', 'No se pudo mover el material');
     } finally {
       setModalLoading(false);
+      setGlobalLoading(false); // Desactivar loading global
     }
   };
 
@@ -205,6 +215,14 @@ export default function ProjectStockScreen() {
       <View style={styles.container}>
         <Text style={styles.title}>📦 Inventario de {processedParams.title}</Text>
         <Text style={styles.subtitle}>ID: {processedParams.projectId}</Text>
+
+        {/* Loading global overlay */}
+        {globalLoading && (
+          <View style={styles.globalLoadingContainer}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
+            <Text style={styles.globalLoadingText}>Procesando...</Text>
+          </View>
+        )}
 
         <SearchHeader
           searchQuery={searchQuery}
@@ -245,7 +263,7 @@ export default function ProjectStockScreen() {
         user={user}
         loading={modalLoading}
         setLoading={setModalLoading}
-        onSave={handleUpdateUsage} // ✅ Nuevo handler con historial
+        onSave={handleUpdateUsage}
       />
 
       <MoveMaterialModal
@@ -257,7 +275,7 @@ export default function ProjectStockScreen() {
         proyectos={proyectos}
         loading={modalLoading}
         setLoading={setModalLoading}
-        onMove={handleMoveMaterial} // ✅ Nuevo handler con historial
+        onMove={handleMoveMaterial}
       />
 
       <AddMaterialModal
@@ -267,14 +285,17 @@ export default function ProjectStockScreen() {
         user={user}
         loading={modalLoading}
         setLoading={setModalLoading}
-        onSave={handleAddMaterial} // ✅ Nuevo handler con historial
+        onSave={handleAddMaterial}
       />
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: { 
+    flex: 1, 
+    padding: 16 
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -312,5 +333,22 @@ const styles = StyleSheet.create({
     color: "#888", 
     textAlign: "center", 
     marginTop: 20 
+  },
+  globalLoadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  globalLoadingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    marginTop: 12,
+    fontWeight: '500',
   },
 });

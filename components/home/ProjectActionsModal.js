@@ -1,5 +1,5 @@
 // components/home/ProjectActionsModal.js
-import { Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import ModalBase from '../ModalBase';
 
 export default function ProjectActionsModal({ 
@@ -9,7 +9,8 @@ export default function ProjectActionsModal({
   onEdit, 
   onAssign, 
   onDelete,
-  canManage = true 
+  canManage = true,
+  loading = false 
 }) {
   if (!project) return null;
 
@@ -25,32 +26,42 @@ export default function ProjectActionsModal({
       </Text>
 
       <View style={styles.actionsContainer}>
-        {/* Asignar personal */}
-        <TouchableOpacity
-          style={[styles.actionButton, styles.assignButton]}
-          onPress={onAssign}
-        >
-          <Text style={styles.actionButtonText}>➕ Asignar personal</Text>
-        </TouchableOpacity>
+        {/* Estado de loading */}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF4500" />
+            <Text style={styles.loadingText}>Eliminando proyecto...</Text>
+          </View>
+        ) : (
+          <>
+            {/* Asignar personal */}
+            <TouchableOpacity
+              style={[styles.actionButton, styles.assignButton]}
+              onPress={onAssign}
+            >
+              <Text style={styles.actionButtonText}>➕ Asignar personal</Text>
+            </TouchableOpacity>
 
-        {/* Editar proyecto */}
-        {canManage && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.editButton]}
-            onPress={onEdit}
-          >
-            <Text style={styles.actionButtonText}>✏️ Editar proyecto</Text>
-          </TouchableOpacity>
-        )}
+            {/* Editar proyecto */}
+            {canManage && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.editButton]}
+                onPress={onEdit}
+              >
+                <Text style={styles.actionButtonText}>✏️ Editar proyecto</Text>
+              </TouchableOpacity>
+            )}
 
-        {/* Eliminar proyecto */}
-        {canManage && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.deleteButton]}
-            onPress={onDelete}
-          >
-            <Text style={styles.actionButtonText}>🗑️ Eliminar proyecto</Text>
-          </TouchableOpacity>
+            {/* Eliminar proyecto */}
+            {canManage && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.deleteButton]}
+                onPress={onDelete}
+              >
+                <Text style={styles.actionButtonText}>🗑️ Eliminar proyecto</Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
     </ModalBase>
@@ -86,5 +97,17 @@ const styles = {
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  //  loading
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
   },
 };

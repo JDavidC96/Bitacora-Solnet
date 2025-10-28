@@ -1,21 +1,62 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Image, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useUser } from '../context/UserContext'; // ← Importar el contexto
 
 export default function WelcomeScreen({ onFinish }) {
   const router = useRouter();
+  const { user, loading } = useUser(); // ← Usar el contexto
+  const [hasCheckedSession, setHasCheckedSession] = useState(false);
+
+  useEffect(() => {
+    // Solo procesar cuando el loading termine
+    if (!loading) {
+      console.log('🔍 Estado de usuario:', user ? 'Autenticado' : 'No autenticado');
+      
+      if (user) {
+        // Si hay usuario autenticado, ir directamente a HomeScreen
+        console.log('✅ Usuario autenticado, redirigiendo a HomeScreen');
+        router.replace('/HomeScreen');
+      } else {
+        // No hay usuario, mostrar pantalla de bienvenida
+        console.log('👤 No hay usuario autenticado, mostrando WelcomeScreen');
+        setHasCheckedSession(true);
+      }
+    }
+  }, [user, loading]); // ← Se ejecuta cuando user o loading cambian
 
   const handleStart = async () => {
     // Guardamos que ya se vio el welcome
     await AsyncStorage.setItem('hasSeenWelcome', 'true');
 
-    // En caso de ir primero al login:
+    // Ir al login
     router.replace('/LoginScreen');
     
     if (onFinish) onFinish();
   };
 
+  // Mostrar loading mientras UserContext verifica la autenticación
+  if (loading || !hasCheckedSession) {
+    return (
+      <LinearGradient
+        colors={['#edf2b1ff', '#ffc782ff', '#FF4500']}
+        style={styles.container}
+      >
+        <View style={styles.loadingContainer}>
+          <Image
+            source={require('../assets/images/terrall.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Text style={styles.loadingText}>Verificando sesión...</Text>
+        </View>
+      </LinearGradient>
+    );
+  }
+
+  // Mostrar la pantalla de bienvenida normal
   return (
     <LinearGradient
       colors={['#edf2b1ff', '#ffc782ff', '#FF4500']}
@@ -41,6 +82,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -74,5 +119,10 @@ const styles = StyleSheet.create({
     color: '#FF4500',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 20,
   },
 });
