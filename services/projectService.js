@@ -6,7 +6,10 @@ import {
   doc,
   getDoc,
   getDocs,
-  updateDoc
+  orderBy,
+  query,
+  updateDoc,
+  where
 } from 'firebase/firestore';
 import { db } from '../firebase/firebaseConfig';
 
@@ -29,7 +32,11 @@ export const projectService = {
         ubicacion: location.trim(),
         startDate: date.toISOString(),
         createdAt: new Date().toISOString(),
-        createdBy: 'system' 
+        createdBy: 'system',
+        // Campos para gestión de completado
+        completed: false,
+        completedAt: null,
+        status: 'active'
       });
       
       return { id: projectRef.id, success: true };
@@ -83,107 +90,262 @@ export const projectService = {
     }
   },
 
-  delete: async (projectId, projectTitle) => {
-  try {
-    
+  // ========== GESTIÓN DE COMPLETADO ==========
 
-    // Array para almacenar todas las operaciones
-    const operations = [];
-
-    // 1. Eliminar subcolecciones
-    const subcollections = ['etapas', 'notas', 'inventario'];
-    
-    for (const subcollection of subcollections) {
-      try {
-        const subcollectionRef = collection(db, 'proyectos', projectId, subcollection);
-        const subcollectionSnap = await getDocs(subcollectionRef);
-        
-        const deleteOps = subcollectionSnap.docs.map(docSnapshot => 
-          deleteDoc(doc(db, 'proyectos', projectId, subcollection, docSnapshot.id))
-        );
-        
-        operations.push(...deleteOps);
-        
-      } catch (subError) {
-        console.warn(`⚠️ Error en subcolección ${subcollection}:`, subError);
+  /**
+   * Marcar proyecto como completado
+   */
+  markAsCompleted: async (projectId, projectTitle = '') => {
+    try {
+      const ref = doc(db, 'proyectos', projectId);
+      
+      // Verificar que el proyecto existe
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        throw new Error('Proyecto no encontrado');
       }
-    }
 
-    // 2. Liberar personal asignado (versión simplificada)
-    try {
-      const personalSnap = await getDocs(collection(db, "personal"));
-      const updatePersonalOps = [];
-      
-      personalSnap.docs.forEach(docSnapshot => {
-        const data = docSnapshot.data();
-        if (data && data.proyectoAsignado === projectTitle) {
-          updatePersonalOps.push(
-            updateDoc(doc(db, "personal", docSnapshot.id), {
-              estado: "libre",
-              proyectoAsignado: null,
-            })
-          );
-        }
+      await updateDoc(ref, {
+        completed: true,
+        completedAt: new Date().toISOString(),
+        status: 'completed',
+        lastUpdated: new Date().toISOString()
       });
-
-      operations.push(...updatePersonalOps);
-      console.log(`👥 ${updatePersonalOps.length} personal para liberar`);
-    } catch (personalError) {
-      console.warn('⚠️ Error liberando personal:', personalError);
-    }
-
-    // 3. Cerrar historial (versión simplificada)
-    try {
-      const historialSnap = await getDocs(collection(db, "historial_personal"));
-      const updateHistorialOps = [];
       
-      historialSnap.docs.forEach(docSnapshot => {
-        const data = docSnapshot.data();
-        if (data && data.destino === projectTitle && !data.fechaFin) {
-          updateHistorialOps.push(
-            updateDoc(doc(db, "historial_personal", docSnapshot.id), {
-              fechaFin: new Date().toISOString().split('T')[0]
-            })
-          );
-        }
+      console.log(`✅ Proyecto "${projectTitle}" (${projectId}) marcado como completado`);
+      return { success: true, message: 'Proyecto marcado como completado' };
+    } catch (error) {
+      console.error('❌ Error marcando proyecto como completado:', error);
+      throw new Error('No se pudo marcar el proyecto como completado');
+    }
+  },
+
+  /**
+   * Reactivar proyecto (mover de vuelta a activos)
+   */
+  markAsActive: async (projectId) => {
+    try {
+      const ref = doc(db, 'proyectos', projectId);
+      
+      // Verificar que el proyecto existe
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        throw new Error('Proyecto no encontrado');
+      }
+
+      await updateDoc(ref, {
+        completed: false,
+        completedAt: null,
+        status: 'active',
+        lastUpdated: new Date().toISOString()
       });
+      
+      console.log(`🔄 Proyecto ${projectId} reactivado`);
+      return { success: true, message: 'Proyecto reactivado' };
+    } catch (error) {
+      console.error('❌ Error reactivando proyecto:', error);
+      throw new Error('No se pudo reactivar el proyecto');
+    }
+  },
 
-      operations.push(...updateHistorialOps);
-      console.log(`📊 ${updateHistorialOps.length} registros de historial para cerrar`);
-    } catch (historialError) {
-      console.warn('⚠️ Error cerrando historial:', historialError);
-    }
+  /**
+   * Verificar si un proyecto está completado (todas las tareas cumplidas)
+   */
+  checkCompletionStatus: async (projectId) => {
+    try {
+      const tasksRef = collection(db, 'proyectos', projectId, 'etapas');
+      const tasksSnap = await getDocs(tasksRef);
+      
+      if (tasksSnap.empty) {
+        return { isCompleted: false, totalTasks: 0, completedTasks: 0 };
+      }
 
-    // Ejecutar todas las operaciones
-    if (operations.length > 0) {
-      console.log(`🔄 Ejecutando ${operations.length} operaciones...`);
-      await Promise.all(operations);
-    }
+      const tasks = tasksSnap.docs.map(doc => doc.data());
+      const totalTasks = tasks.length;
+      const completedTasks = tasks.filter(task => task.cumplida).length;
+      const isCompleted = totalTasks > 0 && completedTasks === totalTasks;
 
-    // 4. Eliminar proyecto principal
-    
-    await deleteDoc(doc(db, 'proyectos', projectId));
-    
-    
-    return { success: true, message: 'Proyecto eliminado correctamente' };
-    
-  } catch (error) {
-    console.error('❌ Error completo eliminando proyecto:', error);
-    
-    // Mensaje de error más detallado
-    let errorMessage = 'No se pudo eliminar el proyecto';
-    if (error.code) {
-      errorMessage += ` (Código: ${error.code})`;
+      return {
+        isCompleted,
+        totalTasks,
+        completedTasks,
+        progress: totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
+      };
+    } catch (error) {
+      console.error('❌ Error verificando estado de completado:', error);
+      throw new Error('No se pudo verificar el estado del proyecto');
     }
-    if (error.message && error.message.includes('indexOf')) {
-      errorMessage = 'Error interno al procesar la eliminación. Intente nuevamente.';
-    } else if (error.message) {
-      errorMessage += `: ${error.message}`;
+  },
+
+  /**
+   * Marcar automáticamente como completado si todas las tareas están cumplidas
+   */
+  autoCompleteIfReady: async (projectId, projectTitle = '') => {
+    try {
+      const completionStatus = await projectService.checkCompletionStatus(projectId);
+      
+      if (completionStatus.isCompleted) {
+        return await projectService.markAsCompleted(projectId, projectTitle);
+      }
+      
+      return { 
+        success: false, 
+        message: 'El proyecto no está listo para completar',
+        ...completionStatus 
+      };
+    } catch (error) {
+      console.error('❌ Error en auto-completado:', error);
+      throw error;
     }
-    
-    throw new Error(errorMessage);
-  }
-},
+  },
+
+  /**
+   * Obtener solo proyectos activos
+   */
+  getActiveProjects: async () => {
+    try {
+      const q = query(
+        collection(db, 'proyectos'),
+        where('completed', '!=', true),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const snap = await getDocs(q);
+      const projects = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      console.log(`📊 ${projects.length} proyectos activos obtenidos`);
+      return projects;
+    } catch (error) {
+      console.error('❌ Error obteniendo proyectos activos:', error);
+      throw new Error('No se pudieron obtener los proyectos activos');
+    }
+  },
+
+  /**
+   * Obtener solo proyectos completados
+   */
+  getCompletedProjects: async () => {
+    try {
+      const q = query(
+        collection(db, 'proyectos'),
+        where('completed', '==', true),
+        orderBy('completedAt', 'desc')
+      );
+      
+      const snap = await getDocs(q);
+      const projects = snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      console.log(`✅ ${projects.length} proyectos completados obtenidos`);
+      return projects;
+    } catch (error) {
+      console.error('❌ Error obteniendo proyectos completados:', error);
+      throw new Error('No se pudieron obtener los proyectos completados');
+    }
+  },
+
+  delete: async (projectId, projectTitle) => {
+    try {
+      // Array para almacenar todas las operaciones
+      const operations = [];
+
+      // 1. Eliminar subcolecciones
+      const subcollections = ['etapas', 'notas', 'inventario'];
+      
+      for (const subcollection of subcollections) {
+        try {
+          const subcollectionRef = collection(db, 'proyectos', projectId, subcollection);
+          const subcollectionSnap = await getDocs(subcollectionRef);
+          
+          const deleteOps = subcollectionSnap.docs.map(docSnapshot => 
+            deleteDoc(doc(db, 'proyectos', projectId, subcollection, docSnapshot.id))
+          );
+          
+          operations.push(...deleteOps);
+          
+        } catch (subError) {
+          console.warn(`⚠️ Error en subcolección ${subcollection}:`, subError);
+        }
+      }
+
+      // 2. Liberar personal asignado (versión simplificada)
+      try {
+        const personalSnap = await getDocs(collection(db, "personal"));
+        const updatePersonalOps = [];
+        
+        personalSnap.docs.forEach(docSnapshot => {
+          const data = docSnapshot.data();
+          if (data && data.proyectoAsignado === projectTitle) {
+            updatePersonalOps.push(
+              updateDoc(doc(db, "personal", docSnapshot.id), {
+                estado: "libre",
+                proyectoAsignado: null,
+              })
+            );
+          }
+        });
+
+        operations.push(...updatePersonalOps);
+        console.log(`👥 ${updatePersonalOps.length} personal para liberar`);
+      } catch (personalError) {
+        console.warn('⚠️ Error liberando personal:', personalError);
+      }
+
+      // 3. Cerrar historial (versión simplificada)
+      try {
+        const historialSnap = await getDocs(collection(db, "historial_personal"));
+        const updateHistorialOps = [];
+        
+        historialSnap.docs.forEach(docSnapshot => {
+          const data = docSnapshot.data();
+          if (data && data.destino === projectTitle && !data.fechaFin) {
+            updateHistorialOps.push(
+              updateDoc(doc(db, "historial_personal", docSnapshot.id), {
+                fechaFin: new Date().toISOString().split('T')[0]
+              })
+            );
+          }
+        });
+
+        operations.push(...updateHistorialOps);
+        console.log(`📊 ${updateHistorialOps.length} registros de historial para cerrar`);
+      } catch (historialError) {
+        console.warn('⚠️ Error cerrando historial:', historialError);
+      }
+
+      // Ejecutar todas las operaciones
+      if (operations.length > 0) {
+        console.log(`🔄 Ejecutando ${operations.length} operaciones...`);
+        await Promise.all(operations);
+      }
+
+      // 4. Eliminar proyecto principal
+      await deleteDoc(doc(db, 'proyectos', projectId));
+      
+      return { success: true, message: 'Proyecto eliminado correctamente' };
+      
+    } catch (error) {
+      console.error('❌ Error completo eliminando proyecto:', error);
+      
+      // Mensaje de error más detallado
+      let errorMessage = 'No se pudo eliminar el proyecto';
+      if (error.code) {
+        errorMessage += ` (Código: ${error.code})`;
+      }
+      if (error.message && error.message.includes('indexOf')) {
+        errorMessage = 'Error interno al procesar la eliminación. Intente nuevamente.';
+      } else if (error.message) {
+        errorMessage += `: ${error.message}`;
+      }
+      
+      throw new Error(errorMessage);
+    }
+  },
 
   // ========== GESTIÓN DE ETAPAS ==========
 

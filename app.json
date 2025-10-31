@@ -11,6 +11,7 @@
   "ios": {
     "supportsTablet": true,
     "bundleIdentifier": "com.terrallsolnet.bitacoraapp",
+    "sku": "bitacora-solnet-ios-2024",
     "infoPlist": {
         "NSUserTrackingUsageDescription": "Esta app usa notificaciones para recordarte tus proyectos.",
         "UIBackgroundModes": ["remote-notification", "fetch"],

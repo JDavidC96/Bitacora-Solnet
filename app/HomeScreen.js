@@ -82,60 +82,60 @@ export default function HomeScreen() {
     }
   };
 
- const handleEditProject = async (updates) => {
-  if (!selectedProject) return;
-  
-  setLoading(true);
-  try {
-    await projectService.update(selectedProject.id, updates);
-    closeAllModals();
-    setSelectedProject(null);
-    Alert.alert('Éxito', 'Proyecto actualizado correctamente');
-  } catch (error) {
-    console.error('Error editando proyecto:', error);
-    Alert.alert('Error', error.message || 'No se pudo actualizar el proyecto');
-  } finally {
-    setLoading(false);
-  }
-};
+  const handleEditProject = async (updates) => {
+    if (!selectedProject) return;
+    
+    setLoading(true);
+    try {
+      await projectService.update(selectedProject.id, updates);
+      closeAllModals();
+      setSelectedProject(null);
+      Alert.alert('Éxito', 'Proyecto actualizado correctamente');
+    } catch (error) {
+      console.error('Error editando proyecto:', error);
+      Alert.alert('Error', error.message || 'No se pudo actualizar el proyecto');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDeleteProject = async () => {
-  if (!selectedProject) return;
-  
-  Alert.alert(
-    'Confirmar eliminación',
-    `¿Estás seguro de que quieres eliminar el proyecto "${selectedProject.title}"?`,
-    [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: async () => {
-          setLoading(true);
-          try {
-            
-            // Verificar ID del proyecto
-            const projectIdToDelete = selectedProject.idDoc || selectedProject.id;
-            
-            if (!projectIdToDelete) {
-              throw new Error('No se pudo obtener el ID del proyecto');
+    if (!selectedProject) return;
+    
+    Alert.alert(
+      'Confirmar eliminación',
+      `¿Estás seguro de que quieres eliminar el proyecto "${selectedProject.title}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              
+              // Verificar ID del proyecto
+              const projectIdToDelete = selectedProject.idDoc || selectedProject.id;
+              
+              if (!projectIdToDelete) {
+                throw new Error('No se pudo obtener el ID del proyecto');
+              }
+              
+              await projectService.delete(projectIdToDelete, selectedProject.title);
+              closeAllModals();
+              setSelectedProject(null);
+              Alert.alert('✅ Éxito', 'Proyecto eliminado correctamente');
+            } catch (error) {
+              console.error('❌ Error eliminando proyecto:', error);
+              Alert.alert('❌ Error', error.message || 'No se pudo eliminar el proyecto');
+            } finally {
+              setLoading(false);
             }
-            
-            await projectService.delete(projectIdToDelete, selectedProject.title);
-            closeAllModals();
-            setSelectedProject(null);
-            Alert.alert('✅ Éxito', 'Proyecto eliminado correctamente');
-          } catch (error) {
-            console.error('❌ Error eliminando proyecto:', error);
-            Alert.alert('❌ Error', error.message || 'No se pudo eliminar el proyecto');
-          } finally {
-            setLoading(false);
-          }
+          },
         },
-      },
-    ]
-  );
-};
+      ]
+    );
+  };
 
   const handleProjectLongPress = (project) => {
     setSelectedProject(project);
@@ -153,29 +153,29 @@ export default function HomeScreen() {
   };
 
   const handleAssignPerson = async (personId) => {
-  if (!selectedProject || !personId) return;
-  
-  setLoading(true);
-  try {
-    // Buscar la persona seleccionada
-    const persona = personal.find(p => p.id === personId);
-    if (!persona) {
-      throw new Error('Persona no encontrada');
-    }
-
-    // Usar el servicio directamente (sin import dinámico)
-    await personalService.assignToProject(persona.id, selectedProject.title);
+    if (!selectedProject || !personId) return;
     
-    closeAllModals();
-    setSelectedProject(null);
-    Alert.alert('Éxito', `${persona.nombre} asignado al proyecto`);
-  } catch (error) {
-    console.error('Error asignando personal:', error);
-    Alert.alert('Error', error.message || 'No se pudo asignar el personal');
-  } finally {
-    setLoading(false);
-  }
-};
+    setLoading(true);
+    try {
+      // Buscar la persona seleccionada
+      const persona = personal.find(p => p.id === personId);
+      if (!persona) {
+        throw new Error('Persona no encontrada');
+      }
+
+      // Usar el servicio directamente (sin import dinámico)
+      await personalService.assignToProject(persona.id, selectedProject.title);
+      
+      closeAllModals();
+      setSelectedProject(null);
+      Alert.alert('Éxito', `${persona.nombre} asignado al proyecto`);
+    } catch (error) {
+      console.error('Error asignando personal:', error);
+      Alert.alert('Error', error.message || 'No se pudo asignar el personal');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLiberarPersona = async (persona) => {
     if (!persona) return;
@@ -264,6 +264,14 @@ export default function HomeScreen() {
           {/* Botones flotantes */}
           {canManage && !projectsLoading && (
             <View style={styles.fabContainer}>
+              {/* Botón de proyectos completados */}
+              <TouchableOpacity
+                style={[styles.fab, styles.completedFab]}
+                onPress={() => router.push('/CompletedProjectsScreen')}
+              >
+                <Text style={styles.fabText}>✅</Text>
+              </TouchableOpacity>
+
               {/* Botón de búsqueda */}
               <TouchableOpacity
                 style={[styles.fab, styles.searchFab]}
@@ -375,6 +383,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
+  },
+  completedFab: {
+    backgroundColor: "#4CAF50", // Verde para completados
   },
   searchFab: {
     backgroundColor: "#3182CE", // Azul para búsqueda

@@ -21,7 +21,7 @@ export const useStepsNotifications = (tasks, projectTitle, projectId) => {
   const getTasksHash = (tasks) => {
     if (!tasks || tasks.length === 0) return 'empty';
     return tasks.map(t => 
-      `${t.idDoc}-${t.cumplida}-${t.fechaInicio}-${t.fechaFin}-${t.titulo}`
+      `${t.idDoc}-${t.cumplida}-${t.fechaInicio}-${t.fechaFin}-${t.titulo}-${t.esMantenimiento || false}`
     ).join('|');
   };
 
@@ -103,14 +103,16 @@ export const useStepsNotifications = (tasks, projectTitle, projectId) => {
       const hoyISO = now.toISOString().split('T')[0];
 
       tasks.forEach((t) => {
+        const esMantenimiento = t.esMantenimiento;
         const estado = getEstado(t);
         const emoji = estadoEmoji(estado);
 
-        // Notificación inmediata: Tarea inicia hoy
+        // Notificación inmediata: Tarea/Mantenimiento inicia hoy
         if (t.fechaInicio === hoyISO) {
+          const tipoTexto = esMantenimiento ? 'Mantenimiento programado' : 'Tarea inicia';
           sendNotification(
-            `${emoji} [${projectTitle}]: Tarea inicia: ${t.titulo}`,
-            `La tarea "${t.titulo}" del proyecto "${projectTitle}" comienza hoy (${t.fechaInicio}).`,
+            `${emoji} [${projectTitle}]: ${tipoTexto}: ${t.titulo}`,
+            `El ${esMantenimiento ? 'mantenimiento' : 'tarea'} "${t.titulo}" del proyecto "${projectTitle}" ${esMantenimiento ? 'está programado para' : 'comienza'} hoy.`,
             null,
             `${t.idDoc}_start_today_${hoyISO}`,
             projectId,
@@ -118,11 +120,12 @@ export const useStepsNotifications = (tasks, projectTitle, projectId) => {
           );
         }
 
-        // Notificación inmediata: Tarea en retraso
+        // Notificación inmediata: Tarea/Mantenimiento en retraso
         if (!t.cumplida && new Date(hoyISO) > new Date(t.fechaFin)) {
+          const tipoTexto = esMantenimiento ? 'Mantenimiento retrasado' : 'Retraso en';
           sendNotification(
-            `${emoji} [${projectTitle}]: Retraso en: ${t.titulo}`,
-            `La tarea "${t.titulo}" del proyecto "${projectTitle}" debía terminar el ${t.fechaFin} y sigue pendiente.`,
+            `${emoji} [${projectTitle}]: ${tipoTexto}: ${t.titulo}`,
+            `El ${esMantenimiento ? 'mantenimiento' : 'tarea'} "${t.titulo}" del proyecto "${projectTitle}" debía realizarse el ${t.fechaFin} y sigue pendiente.`,
             null,
             `${t.idDoc}_delay_${hoyISO}`,
             projectId,
@@ -130,14 +133,15 @@ export const useStepsNotifications = (tasks, projectTitle, projectId) => {
           );
         }
 
-        // Notificación programada: Inicio de tarea
+        // Notificación programada: Inicio de tarea/mantenimiento
         if (t.fechaInicio) {
           const startKey = `${t.idDoc}_start_${t.fechaInicio}`;
           const startTrigger = new Date(`${t.fechaInicio}T09:00:00`);
           if (startTrigger > now) {
+            const tipoTexto = esMantenimiento ? 'Mantenimiento programado' : 'Inicio de';
             sendNotification(
-              `${estadoEmoji('pendiente')} [${projectTitle}]: Inicio de ${t.titulo}`,
-              `La tarea "${t.titulo}" del proyecto "${projectTitle}" inicia hoy.`,
+              `${estadoEmoji('pendiente')} [${projectTitle}]: ${tipoTexto} ${t.titulo}`,
+              `El ${esMantenimiento ? 'mantenimiento' : 'tarea'} "${t.titulo}" del proyecto "${projectTitle}" ${esMantenimiento ? 'está programado para' : 'inicia'} hoy.`,
               startTrigger,
               startKey,
               projectId,
@@ -146,14 +150,15 @@ export const useStepsNotifications = (tasks, projectTitle, projectId) => {
           }
         }
 
-        // Notificación programada: Fin de tarea
+        // Notificación programada: Fin de tarea/mantenimiento
         if (t.fechaFin && !t.cumplida) {
           const endKey = `${t.idDoc}_end_${t.fechaFin}`;
           const endTrigger = new Date(`${t.fechaFin}T17:00:00`);
           if (endTrigger > now) {
+            const tipoTexto = esMantenimiento ? 'Vence mantenimiento' : 'Vence';
             sendNotification(
-              `${estadoEmoji('pendiente')} [${projectTitle}]: Vence ${t.titulo}`,
-              `La tarea "${t.titulo}" del proyecto "${projectTitle}" vence hoy.`,
+              `${estadoEmoji('pendiente')} [${projectTitle}]: ${tipoTexto} ${t.titulo}`,
+              `El ${esMantenimiento ? 'mantenimiento' : 'tarea'} "${t.titulo}" del proyecto "${projectTitle}" vence hoy.`,
               endTrigger,
               endKey,
               projectId,

@@ -1,7 +1,7 @@
 // services/imageService.js
 import * as FileSystem from "expo-file-system/legacy";
 
-const GOOGLE_APPS_SCRIPT_URL = "Script_de_Google_Apps_aquí";
+const GOOGLE_APPS_SCRIPT_URL = "tu URL_de_Google_Apps_Script_aquí";
 
 export const imageService = {
   /**

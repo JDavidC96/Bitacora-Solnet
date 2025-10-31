@@ -1,4 +1,3 @@
-
 // Feriados (YYYY-MM-DD)
 
 export const HOLIDAYS_CO = [
@@ -45,8 +44,6 @@ export const HOLIDAYS_CO = [
   "2026-12-30",
   "2026-12-31",
 ];
-
-
 
 // Helpers de fecha (LOCAL, sin UTC)
 
@@ -134,9 +131,7 @@ export const businessDaysBetweenInclusive = (startYMD, endYMD, holidays) => {
   return count;
 };
 
-
-// Definición de tareas (días HÁBILES)
-
+// Definición de tareas (días HÁBILES) - SIN MANTENIMIENTOS
 export const DEFINICION_TAREAS = [
   // Fase 1 - Contrato
   { id: "firma_contrato", titulo: "Firma contrato", fase: "Fase 1 - Contrato", dias: 3, dependsOn: [] },
@@ -188,9 +183,25 @@ export const DEFINICION_TAREAS = [
   { id: "acta_legalizacion", titulo: "Acta legalización", fase: "Fase 6 - Legalización del proyecto", dias: 1, dependsOn: [{ id: "legalizacion", relation: "startAtEndOf" }] },
 ];
 
+// Definición de tareas de mantenimiento (separadas)
+export const MANTENIMIENTOS_TAREAS = [
+  { 
+    id: "primer_mantenimiento", 
+    titulo: "Primer mantenimiento (6 meses)", 
+    fase: "Fase 7 - Mantenimientos", 
+    dias: 0,
+    esMantenimiento: true
+  },
+  { 
+    id: "segundo_mantenimiento", 
+    titulo: "Segundo mantenimiento (12 meses)", 
+    fase: "Fase 7 - Mantenimientos", 
+    dias: 0,
+    esMantenimiento: true
+  }
+];
 
 // buildSchedule con orden topológico y fechas LOCAL
-
 export const buildSchedule = (startDate, extraDurations = {}, holidays = HOLIDAYS_CO) => {
   const tareasMap = new Map();
   DEFINICION_TAREAS.forEach(t => {
@@ -226,35 +237,36 @@ export const buildSchedule = (startDate, extraDurations = {}, holidays = HOLIDAY
     let fechaInicio = new Date(inicioProyecto.getFullYear(), inicioProyecto.getMonth(), inicioProyecto.getDate(), 0, 0, 0, 0);
 
     // ajustar por dependencias
-(tarea.dependsOn || []).forEach(dep => {
-  const depTarea = resultado.get(dep.id);
-  if (!depTarea) throw new Error(`Dependencia ${dep.id} de ${id} no encontrada`);
+    (tarea.dependsOn || []).forEach(dep => {
+      const depTarea = resultado.get(dep.id);
+      if (!depTarea) throw new Error(`Dependencia ${dep.id} de ${id} no encontrada`);
 
-  if (dep.relation === "startWith") {
-    // mismo inicio que la dependencia
-    const depStart = fromYMD(depTarea.fechaInicio);
-    if (depStart.getTime() > fechaInicio.getTime()) fechaInicio = depStart;
-  } 
-  else if (dep.relation === "startAtEndOf") {
-    // mismo día que termina la dependencia
-    const depFin = fromYMD(depTarea.fechaFin);
-    if (depFin.getTime() > fechaInicio.getTime()) fechaInicio = depFin;
-  } 
-  else if (dep.relation === "startDayAfterEndOf") {
-    // siguiente día hábil después de terminar
-    const depFin = fromYMD(depTarea.fechaFin);
-    const next = nextBusinessDay(depFin, holidays);
-    if (next.getTime() > fechaInicio.getTime()) fechaInicio = next;
-  }
-});
+      if (dep.relation === "startWith") {
+        // mismo inicio que la dependencia
+        const depStart = fromYMD(depTarea.fechaInicio);
+        if (depStart.getTime() > fechaInicio.getTime()) fechaInicio = depStart;
+      } 
+      else if (dep.relation === "startAtEndOf") {
+        // mismo día que termina la dependencia
+        const depFin = fromYMD(depTarea.fechaFin);
+        if (depFin.getTime() > fechaInicio.getTime()) fechaInicio = depFin;
+      } 
+      else if (dep.relation === "startDayAfterEndOf") {
+        // siguiente día hábil después de terminar
+        const depFin = fromYMD(depTarea.fechaFin);
+        const next = nextBusinessDay(depFin, holidays);
+        if (next.getTime() > fechaInicio.getTime()) fechaInicio = next;
+      }
+    });
 
-    // duración (incluye día de inicio)
+    // Para tareas normales: duración en días hábiles
     const dur = (tarea.dias || 0) + (extraDurations[id] || 0);
     const fechaFin = addBusinessDaysInclusive(fechaInicio, Math.max(dur, 0), holidays);
 
     resultado.set(id, {
       fechaInicio: toYMD(fechaInicio),
       fechaFin: toYMD(fechaFin),
+      esMantenimiento: false
     });
   });
 
