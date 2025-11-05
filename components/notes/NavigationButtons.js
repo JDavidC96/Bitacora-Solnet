@@ -20,7 +20,8 @@ export default function NavigationButtons({ projectId, projectTitle }) {
       title: '📦 Inventario del Proyecto',
       path: '/ProjectStockScreen',
       color: '#48BB78'
-    }
+    },
+   
   ];
 
   const handleNavigation = (button) => {
@@ -41,8 +42,6 @@ export default function NavigationButtons({ projectId, projectTitle }) {
     const finalParams = button.path === '/ProjectStockScreen' 
       ? { ...baseParams, projectId: projectId }
       : baseParams;
-
-    console.log('📤 Enviando parámetros:', finalParams);
 
     router.push({
       pathname: button.path,

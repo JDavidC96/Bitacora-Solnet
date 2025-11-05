@@ -50,49 +50,63 @@ export default function ProjectStepScreen() {
 
   const { canMarkStateRole, canProrrogaRole, canChangeStartDateRole } = usePermissions();
   const { projectStartISO, handleChangeStartDate, showDatePicker, setShowDatePicker } = useProjectData(projectId);
-  const { tasks, prorrogaModal, setProrrogaModal, prorrogaTarget, setProrrogaTarget, prorrogaDias, setProrrogaDias, applyProrroga, toggleCumplida, openProrroga } = useTasks(projectId, projectStartISO, canMarkStateRole, canProrrogaRole);
+  const { 
+    tasks, 
+    prorrogaModal, 
+    setProrrogaModal, 
+    prorrogaTarget, 
+    setProrrogaTarget, 
+    prorrogaDias, 
+    setProrrogaDias, 
+    applyProrroga, 
+    toggleCumplida, 
+    openProrroga,
+    markAsNotApplicable,
+    unmarkAsNotApplicable
+  } = useTasks(projectId, projectStartISO, canMarkStateRole, canProrrogaRole);
   
   useStepsNotifications(tasks, projectTitle, projectId);
 
-  // Verificar si el proyecto está completado (excluyendo mantenimientos)
-  // En ProjectStepScreen.js - modificar el efecto de completado
-useEffect(() => {
-  const checkProjectCompletion = async () => {
-    if (!projectId || tasks.length === 0) return;
+  // Verificar si el proyecto está completado (excluyendo mantenimientos y tareas no aplica)
+  useEffect(() => {
+    const checkProjectCompletion = async () => {
+      if (!projectId || tasks.length === 0) return;
 
-    // Filtrar solo tareas normales (excluir mantenimientos)
-    const tareasNormales = tasks.filter(task => !task.esMantenimiento);
-    
-    // Verificar si todas las tareas normales están cumplidas
-    const allNormalTasksCompleted = tareasNormales.length > 0 && 
-      tareasNormales.every(task => task.cumplida);
-    
-    if (allNormalTasksCompleted && !projectCompleted) {
-      try {
-        // Marcar automáticamente como completado
-        await projectService.markAsCompleted(projectId, projectTitle);
-        setProjectCompleted(true);
-        
-        Alert.alert(
-          '🎉 ¡Proyecto Completado!',
-          `El proyecto "${projectTitle}" ha sido completado al 100%. Será movido a la sección de proyectos completados.\n\nLos mantenimientos seguirán activos para notificaciones.`,
-          [
-            {
-              text: 'OK',
-              onPress: () => console.log('Usuario confirmó completado del proyecto')
-            }
-          ]
-        );
-      } catch (error) {
-        console.error('❌ Error marcando proyecto como completado:', error);
+      // Filtrar solo tareas normales activas (excluir mantenimientos y no aplica)
+      const tareasNormalesActivas = tasks.filter(task => 
+        !task.esMantenimiento && !task.noAplica
+      );
+      
+      // Verificar si todas las tareas normales activas están cumplidas
+      const allNormalTasksCompleted = tareasNormalesActivas.length > 0 && 
+        tareasNormalesActivas.every(task => task.cumplida);
+      
+      if (allNormalTasksCompleted && !projectCompleted) {
+        try {
+          // Marcar automáticamente como completado
+          await projectService.markAsCompleted(projectId, projectTitle);
+          setProjectCompleted(true);
+          
+          Alert.alert(
+            '🎉 ¡Proyecto Completado!',
+            `El proyecto "${projectTitle}" ha sido completado al 100%. Será movido a la sección de proyectos completados.\n\nLos mantenimientos seguirán activos para notificaciones.`,
+            [
+              {
+                text: 'OK',
+                onPress: () => console.log('Usuario confirmó completado del proyecto')
+              }
+            ]
+          );
+        } catch (error) {
+          console.error('❌ Error marcando proyecto como completado:', error);
+        }
+      } else if (!allNormalTasksCompleted && projectCompleted) {
+        setProjectCompleted(false);
       }
-    } else if (!allNormalTasksCompleted && projectCompleted) {
-      setProjectCompleted(false);
-    }
-  };
+    };
 
-  checkProjectCompletion();
-}, [tasks, projectId, projectTitle, projectCompleted]);
+    checkProjectCompletion();
+  }, [tasks, projectId, projectTitle, projectCompleted]);
 
   // Efecto para manejar la tarea enfocada desde la notificación
   useEffect(() => {
@@ -164,6 +178,8 @@ useEffect(() => {
           canProrrogaRole={canProrrogaRole}
           toggleCumplida={toggleCumplida}
           openProrroga={openProrroga}
+          markAsNotApplicable={markAsNotApplicable}
+          unmarkAsNotApplicable={unmarkAsNotApplicable}
           focusedTask={focusedTask}
         />
       </ScrollView>

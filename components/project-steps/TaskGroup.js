@@ -4,7 +4,16 @@ import { contarDiasHabiles } from '../../utils/dateUtils';
 import styles from './styles';
 import { TaskCard } from './TaskCard';
 
-export const TaskGroup = ({ tasks, canMarkStateRole, canProrrogaRole, toggleCumplida, openProrroga }) => {
+export const TaskGroup = ({ 
+  tasks, 
+  canMarkStateRole, 
+  canProrrogaRole, 
+  toggleCumplida, 
+  openProrroga,
+  markAsNotApplicable,
+  unmarkAsNotApplicable,
+  focusedTask 
+}) => {
   const ordenIds = DEFINICION_TAREAS.map((t) => t.id);
   const grouped = tasks.reduce((acc, tarea) => {
     if (!acc[tarea.fase]) acc[tarea.fase] = [];
@@ -24,27 +33,35 @@ export const TaskGroup = ({ tasks, canMarkStateRole, canProrrogaRole, toggleCump
   return (
     <>
       {fasesOrdenadas.map((fase) => {
+        // Filtrar tareas que no son mantenimientos y no están marcadas como no aplica para el cálculo
+        const tareasParaCalculo = grouped[fase].filter(t => !t.esMantenimiento && !t.noAplica);
         const tareas = grouped[fase].sort(
           (a, b) => ordenIds.indexOf(a.idTarea) - ordenIds.indexOf(b.idTarea)
         );
 
-        const minFecha = tareas.reduce(
+        const minFecha = tareasParaCalculo.length > 0 ? tareasParaCalculo.reduce(
           (min, t) => (min < t.fechaInicio ? min : t.fechaInicio),
-          tareas[0].fechaInicio
-        );
-        const maxFecha = tareas.reduce(
+          tareasParaCalculo[0].fechaInicio
+        ) : null;
+        
+        const maxFecha = tareasParaCalculo.length > 0 ? tareasParaCalculo.reduce(
           (max, t) => (max > t.fechaFin ? max : t.fechaFin),
-          tareas[0].fechaFin
-        );
-        const diasFase = contarDiasHabiles(minFecha, maxFecha);
+          tareasParaCalculo[0].fechaFin
+        ) : null;
+        
+        const diasFase = minFecha && maxFecha ? contarDiasHabiles(minFecha, maxFecha) : 0;
 
-        if (!fechaInicioProyecto || minFecha < fechaInicioProyecto) fechaInicioProyecto = minFecha;
-        if (!fechaFinProyecto || maxFecha > fechaFinProyecto) fechaFinProyecto = maxFecha;
+        if (minFecha && (!fechaInicioProyecto || minFecha < fechaInicioProyecto)) {
+          fechaInicioProyecto = minFecha;
+        }
+        if (maxFecha && (!fechaFinProyecto || maxFecha > fechaFinProyecto)) {
+          fechaFinProyecto = maxFecha;
+        }
 
         return (
           <View key={fase} style={{ marginBottom: 20 }}>
             <Text style={styles.groupTitle}>
-              {fase} (Duración real: {diasFase} días hábiles)
+              {fase} {diasFase > 0 ? `(Duración real: ${diasFase} días hábiles)` : '(Sin tareas activas)'}
             </Text>
 
             {tareas.map((tarea) => (
@@ -55,6 +72,8 @@ export const TaskGroup = ({ tasks, canMarkStateRole, canProrrogaRole, toggleCump
                 canProrrogaRole={canProrrogaRole}
                 toggleCumplida={toggleCumplida}
                 openProrroga={openProrroga}
+                markAsNotApplicable={markAsNotApplicable}
+                unmarkAsNotApplicable={unmarkAsNotApplicable}
               />
             ))}
           </View>
@@ -104,3 +123,5 @@ const ProjectSummary = ({ fechaInicio, fechaFin }) => {
     </>
   );
 };
+
+export default TaskGroup;

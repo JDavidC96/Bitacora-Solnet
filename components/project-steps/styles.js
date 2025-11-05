@@ -77,7 +77,9 @@ export default StyleSheet.create({
   taskTitle: { 
     color: '#FFF', 
     fontSize: 16, 
-    fontWeight: '600' 
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 8
   },
   taskDate: { 
     color: '#DDD', 
@@ -107,7 +109,8 @@ export default StyleSheet.create({
   actionsContainer: { 
     flexDirection: 'row', 
     gap: 8, 
-    marginTop: 10 
+    marginTop: 10,
+    flexWrap: 'wrap'
   },
 
   // Badges
@@ -116,7 +119,8 @@ export default StyleSheet.create({
     paddingVertical: 4, 
     borderRadius: 12, 
     overflow: 'hidden', 
-    fontWeight: '700' 
+    fontWeight: '700',
+    fontSize: 12
   },
   badgeOk: { 
     backgroundColor: '#48BB78', 
@@ -130,6 +134,10 @@ export default StyleSheet.create({
     backgroundColor: '#F56565', 
     color: '#FFF' 
   },
+  badgeNoAplica: {
+    backgroundColor: '#718096',
+    color: '#1A202C'
+  },
 
   // Buttons
   smallBtn: { 
@@ -140,7 +148,8 @@ export default StyleSheet.create({
   },
   smallBtnText: { 
     color: '#1A202C', 
-    fontWeight: '700' 
+    fontWeight: '700',
+    fontSize: 12
   },
   button: { 
     padding: 12, 
@@ -151,6 +160,40 @@ export default StyleSheet.create({
     color: '#1A202C', 
     fontWeight: 'bold', 
     textAlign: 'center' 
+  },
+
+  // No Aplica Styles
+  noAplicaCard: {
+    backgroundColor: '#4A5568',
+    opacity: 0.7,
+    borderLeftWidth: 4,
+    borderLeftColor: '#718096',
+  },
+  noAplicaTitle: {
+    color: '#A0AEC0',
+    fontSize: 16,
+    fontWeight: '600',
+    textDecorationLine: 'line-through',
+    flex: 1,
+    marginRight: 8
+  },
+  noAplicaText: {
+    color: '#CBD5E0',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  noAplicaDate: {
+    color: '#718096',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  noAplicaBtn: {
+    backgroundColor: '#718096',
+  },
+  reactivateBtn: {
+    backgroundColor: '#48BB78',
+    marginTop: 8,
   },
 
   // Inputs

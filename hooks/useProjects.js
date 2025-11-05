@@ -49,21 +49,24 @@ export const useProjects = () => {
                   ...et.data() 
                 }));
                 
-                // Filtrar solo tareas normales (excluir mantenimientos)
-                const tareasNormales = todasLasTareas.filter(t => !t.esMantenimiento);
+                // Filtrar solo tareas normales activas (excluir mantenimientos y no aplica)
+                const tareasNormalesActivas = todasLasTareas.filter(t => 
+                  !t.esMantenimiento && !t.noAplica
+                );
                 const tareasMantenimiento = todasLasTareas.filter(t => t.esMantenimiento);
+                const tareasNoAplica = todasLasTareas.filter(t => t.noAplica);
                 
-                const totalTareasNormales = tareasNormales.length;
-                const cumplidasTareasNormales = tareasNormales.filter((et) => et.cumplida).length;
+                const totalTareasNormales = tareasNormalesActivas.length;
+                const cumplidasTareasNormales = tareasNormalesActivas.filter((et) => et.cumplida).length;
                 const progress = totalTareasNormales > 0 ? cumplidasTareasNormales / totalTareasNormales : 0;
 
-                // detectar si hay etapas retrasadas (incluyendo mantenimientos)
+                // detectar si hay etapas retrasadas (solo tareas activas)
                 const hoyISO = new Date().toISOString().split("T")[0];
-                const retrasada = todasLasTareas.some((et) => {
+                const retrasada = tareasNormalesActivas.some((et) => {
                   return !et.cumplida && new Date(hoyISO) > new Date(et.fechaFin);
                 });
 
-                // Verificar si el proyecto está completado (solo tareas normales)
+                // Verificar si el proyecto está completado (solo tareas normales activas)
                 const allNormalTasksCompleted = totalTareasNormales > 0 && 
                   cumplidasTareasNormales === totalTareasNormales;
 
@@ -77,12 +80,13 @@ export const useProjects = () => {
                       totalTareas: totalTareasNormales,
                       tareasCumplidas: cumplidasTareasNormales,
                       totalMantenimientos: tareasMantenimiento.length,
-                      mantenimientosCumplidos: tareasMantenimiento.filter(t => t.cumplida).length
+                      mantenimientosCumplidos: tareasMantenimiento.filter(t => t.cumplida).length,
+                      tareasNoAplica: tareasNoAplica.length
                     } : p
                   )
                 );
 
-                // Si todas las tareas normales están completadas, marcar proyecto como completado
+                // Si todas las tareas normales activas están completadas, marcar proyecto como completado
                 if (allNormalTasksCompleted && !proj.completed) {
                   console.log(`✅ Proyecto ${proj.title} completado al 100% - Debería moverse a completados`);
                   // El marcado automático se hace en ProjectStepScreen

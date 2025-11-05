@@ -54,15 +54,7 @@ export default function ProjectList({
 
   return (
     <View style={styles.container}>
-      {/* Información de resultados */}
-      {projects.length > 0 && (
-        <View style={styles.resultsHeader}>
-          <Text style={styles.resultsText}>
-            Mostrando {projects.length} proyecto{projects.length !== 1 ? 's' : ''}
-          </Text>
-        </View>
-      )}
-      
+     
       <FlatList
         data={projects}
         keyExtractor={keyExtractor}
