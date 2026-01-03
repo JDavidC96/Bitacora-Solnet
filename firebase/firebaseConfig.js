@@ -17,7 +17,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// 👇 Detecta si estamos en web o en móvil
+// Detecta si estamos en web o en móvil
 let auth;
 if (Platform.OS === 'web') {
   // En web ya usa localStorage automáticamente

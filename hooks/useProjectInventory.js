@@ -1,43 +1,40 @@
-import { collection, onSnapshot } from "firebase/firestore";
+// hooks/useProjectInventory.js
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { db } from "../firebase/firebaseConfig";
 
 export const useProjectInventory = (projectId) => {
-  const [items, setItems] = useState([]);
+  const [projectItems, setProjectItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!projectId) {
-      setLoading(false);
-      return;
-    }
+    if (!projectId) return;
 
-    try {
-      const q = collection(db, "proyectos", projectId, "inventario");
-      const unsub = onSnapshot(
-        q, 
-        (snap) => {
-          const unique = Array.from(
-            new Map(snap.docs.map((d) => [d.id, { idDoc: d.id, ...d.data() }])).values()
-          );
-          setItems(unique);
-          setLoading(false);
-        },
-        (err) => {
-          console.error('Error en suscripción de inventario:', err);
-          setError(err);
-          setLoading(false);
-        }
-      );
-      
-      return () => unsub();
-    } catch (err) {
-      console.error('Error inicializando useProjectInventory:', err);
-      setError(err);
-      setLoading(false);
-    }
+    const ref = collection(db, "proyectos", projectId, "inventario");
+    const q = query(ref);
+
+    // 📌 Firestore listener en tiempo real
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        setProjectItems(list);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Error cargando inventario del proyecto:", err);
+        setLoading(false);
+      }
+    );
+
+    return () => unsub();
   }, [projectId]);
 
-  return { items, loading, error };
+  return {
+    projectItems,
+    loading,
+  };
 };

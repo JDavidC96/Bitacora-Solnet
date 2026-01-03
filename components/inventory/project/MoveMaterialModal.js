@@ -1,113 +1,95 @@
-import { addDoc, collection, doc, getDoc, getDocs, updateDoc } from "firebase/firestore";
-import { useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity } from "react-native";
-import { db } from "../../../firebase/firebaseConfig";
-import DropdownSelect from "../../DropdownSelect";
+// components/inventory/project/MoveMaterialModal.js
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
 import ModalBase from "../../ModalBase";
+
+function normalize(t) {
+  return t
+    ?.toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function getCantidadDisponible(item) {
+  if (typeof item.cantidadActual === "number") return item.cantidadActual;
+  if (typeof item.cantidad_disponible === "number")
+    return item.cantidad_disponible;
+  if (typeof item.cantidad === "number") return item.cantidad;
+  return 0;
+}
 
 export default function MoveMaterialModal({
   visible,
   onClose,
-  selectedItem,
-  projectId,
-  role,
-  proyectos,
+  item,
+  onReturn,
+  onTransfer,
+  projects,
+  currentProjectId,
   loading,
-  setLoading
 }) {
-  const [moveCantidad, setMoveCantidad] = useState("");
-  const [destino, setDestino] = useState("general");
-  const [proyectoDestino, setProyectoDestino] = useState(null);
+  const [cantidad, setCantidad] = useState("");
+  const [mode, setMode] = useState(null);
 
-  const rolesConPermisoMover = ["Administrador", "Ingeniero", "Supervisor", "Almacenista"];
+  const [search, setSearch] = useState("");
+  const [selectedProject, setSelectedProject] = useState(null);
 
-  const handleMove = async () => {
-    if (!selectedItem || !moveCantidad) return;
-    
-    const cantidadInt = parseFloat(moveCantidad);
-    if (isNaN(cantidadInt) || cantidadInt <= 0) {
-      Alert.alert("Error", "Ingresa una cantidad válida");
+  useEffect(() => {
+    if (!visible) {
+      setCantidad("");
+      setMode(null);
+      setSearch("");
+      setSelectedProject(null);
+    }
+  }, [visible]);
+
+  if (!item) return null;
+
+  const disponible = getCantidadDisponible(item);
+
+  const list = projects.filter((p) => p.id !== currentProjectId);
+
+  const filteredProjects = list.filter((p) => {
+    const q = normalize(search);
+    if (!q) return true;
+    return normalize(p.title).includes(q);
+  });
+
+  const confirm = () => {
+    const qty = Number(cantidad);
+    if (!qty || qty <= 0) {
+      alert("Ingrese una cantidad válida mayor a 0.");
       return;
     }
-    
-    if (cantidadInt > selectedItem.cantidad) {
-      Alert.alert("Error", "No puedes mover más de lo disponible");
+    if (qty > disponible) {
+      alert(`No puede mover más de lo disponible (${disponible}).`);
       return;
     }
 
-    if (destino === "general" && !rolesConPermisoMover.includes(role)) {
-      Alert.alert("Permiso denegado", "No puedes mover al inventario general");
+    if (mode === "return") {
+      onReturn({ cantidad: qty });
       return;
     }
 
-    try {
-      setLoading(true);
-      const refActual = doc(db, "proyectos", projectId, "inventario", selectedItem.idDoc);
-      const snap = await getDoc(refActual);
-      
-      if (!snap.exists()) {
-        Alert.alert("Error", "El material ya no existe en este proyecto");
+    if (mode === "transfer") {
+      if (!selectedProject) {
+        alert("Seleccione un proyecto destino.");
         return;
       }
-
-      await updateDoc(refActual, { cantidad: selectedItem.cantidad - cantidadInt });
-
-      if (destino === "general") {
-        await moveToGeneralInventory(selectedItem, cantidadInt);
-      } else if (destino === "proyecto" && proyectoDestino) {
-        await moveToProject(selectedItem, cantidadInt, proyectoDestino);
-      }
-
-      Alert.alert("Éxito", "Movimiento realizado con éxito");
-      onClose();
-      setMoveCantidad("");
-      setProyectoDestino(null);
-    } catch (error) {
-      Alert.alert("Error", "No se pudo mover el material");
-      console.error("Error moviendo material:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const moveToGeneralInventory = async (item, cantidad) => {
-    const colDestino = collection(db, "inventario_general");
-    const snapGen = await getDocs(colDestino);
-    const existente = snapGen.docs.find((d) => d.data().nombre === item.nombre);
-
-    if (existente) {
-      await updateDoc(doc(db, "inventario_general", existente.id), {
-        cantidad: existente.data().cantidad + cantidad,
-        ultimaModificacion: new Date(),
-      });
-    } else {
-      await addDoc(colDestino, {
-        nombre: item.nombre,
-        cantidad: cantidad,
-        tipo_medida: item.tipo_medida || "Unidad",
-        notas: item.notas || "",
-        ultimaModificacion: new Date(),
-      });
-    }
-  };
-
-  const moveToProject = async (item, cantidad, proyectoId) => {
-    const colDestino = collection(db, `proyectos/${proyectoId}/inventario`);
-    const snapProj = await getDocs(colDestino);
-    const existente = snapProj.docs.find((d) => d.data().nombre === item.nombre);
-
-    if (existente) {
-      await updateDoc(doc(db, `proyectos/${proyectoId}/inventario`, existente.id), {
-        cantidad: existente.data().cantidad + cantidad,
-        ultimaModificacion: new Date(),
-      });
-    } else {
-      await addDoc(colDestino, {
-        nombre: item.nombre,
-        cantidad: cantidad,
-        tipo_medida: item.tipo_medida || "Unidad",
-        notas: item.notas || "",
-        ultimaModificacion: new Date(),
+      onTransfer({
+        cantidad: qty,
+        proyectoDestino: selectedProject.id,
       });
     }
   };
@@ -115,60 +97,167 @@ export default function MoveMaterialModal({
   return (
     <ModalBase
       visible={visible}
-      title={`Mover ${selectedItem?.nombre}`}
       onClose={onClose}
+      title="Mover material"
       footer={
-        <TouchableOpacity style={styles.saveButton} onPress={handleMove} disabled={loading}>
-          <Text style={styles.saveButtonText}>✅ Confirmar</Text>
-        </TouchableOpacity>
+        mode && (
+          <TouchableOpacity
+            style={[styles.btn, loading && { opacity: 0.6 }]}
+            disabled={loading}
+            onPress={confirm}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFF" />
+            ) : (
+              <Text style={styles.btnText}>Confirmar</Text>
+            )}
+          </TouchableOpacity>
+        )
       }
     >
-      <TextInput
-        style={styles.input}
-        placeholder="Cantidad a mover"
-        placeholderTextColor="#aaa"
-        keyboardType="numeric"
-        value={moveCantidad}
-        onChangeText={setMoveCantidad}
-      />
+      <Text style={styles.name}>{item.nombre}</Text>
+      <Text style={styles.meta}>
+        Código: {item.codigo || "—"} · {item.tipo_medida}
+      </Text>
 
-      <DropdownSelect
-        data={[
-          { label: "Inventario General", value: "general" },
-          { label: "Otro Proyecto", value: "proyecto" },
-        ]}
-        value={destino}
-        onChange={setDestino}
-      />
+      {!mode && (
+        <View style={{ marginTop: 12 }}>
+          <TouchableOpacity
+            style={styles.option}
+            onPress={() => setMode("return")}
+          >
+            <Text style={styles.optionText}>Devolver al inventario general</Text>
+          </TouchableOpacity>
 
-      {destino === "proyecto" && (
-        <DropdownSelect
-          data={proyectos
-            .filter((p) => p.id !== projectId && (p.progress || 0) < 1)
-            .map((p) => ({ label: p.title, value: p.id }))}
-          value={proyectoDestino}
-          onChange={setProyectoDestino}
-          placeholder="Selecciona proyecto destino"
-        />
+          <TouchableOpacity
+            style={styles.option}
+            onPress={() => setMode("transfer")}
+          >
+            <Text style={styles.optionText}>Mover a otro proyecto</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {mode && (
+        <>
+          <Text style={styles.label}>Cantidad</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Cantidad"
+            placeholderTextColor="#636A7B"
+            value={cantidad}
+            onChangeText={setCantidad}
+            keyboardType="numeric"
+          />
+        </>
+      )}
+
+      {mode === "transfer" && (
+        <>
+          <Text style={[styles.label, { marginTop: 10 }]}>
+            Seleccionar proyecto destino
+          </Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Buscar proyecto..."
+            placeholderTextColor="#636A7B"
+            value={search}
+            onChangeText={setSearch}
+          />
+
+          <FlatList
+            data={filteredProjects}
+            keyExtractor={(p) => p.id}
+            style={{ maxHeight: 180 }}
+            renderItem={({ item: proj }) => {
+              const isSelected = selectedProject?.id === proj.id;
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.projectRow,
+                    isSelected && styles.projectSelected,
+                  ]}
+                  onPress={() => setSelectedProject(proj)}
+                >
+                  <Text style={styles.projectText}>{proj.title}</Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </>
       )}
     </ModalBase>
   );
 }
 
 const styles = StyleSheet.create({
-  input: {
-    backgroundColor: "#1E1E2F",
-    color: "#FFF",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 16,
+  name: {
+    color: "#F8FAFC",
+    fontWeight: "700",
+    fontSize: 16,
+    marginBottom: 4,
   },
-  saveButton: {
-    backgroundColor: "#38A169",
+  meta: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  option: {
     padding: 12,
+    backgroundColor: "#0B1120",
     borderRadius: 8,
-    marginTop: 8,
-    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    marginBottom: 8,
   },
-  saveButtonText: { color: "#FFF", fontWeight: "bold" },
+  optionText: {
+    color: "#F8FAFC",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  label: {
+    color: "#E5E7EB",
+    fontSize: 13,
+    marginBottom: 4,
+    marginTop: 6,
+  },
+  input: {
+    backgroundColor: "#111827",
+    color: "#FFF",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#1F2937",
+    marginBottom: 10,
+  },
+  btn: {
+    backgroundColor: "#0EA5E9",
+    padding: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  btnText: {
+    color: "#FFF",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  projectRow: {
+    padding: 10,
+    backgroundColor: "#0F172A",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#1E293B",
+    marginBottom: 6,
+  },
+  projectSelected: {
+    borderColor: "#0EA5E9",
+  },
+  projectText: {
+    color: "#F8FAFC",
+    fontSize: 13,
+    fontWeight: "600",
+  },
 });

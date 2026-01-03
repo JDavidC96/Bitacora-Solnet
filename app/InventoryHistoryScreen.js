@@ -1,310 +1,303 @@
-// app/inventory-history.js
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+// app/InventoryHistoryScreen.js
+// ✔ Historial completo y consistente
+// ✔ Soporta datos viejos y nuevos
+// ✔ Nombre humano SIEMPRE visible
+
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { useMemo, useState } from "react";
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import normalize from "../utils/normalize";
 
 // Hooks
-import { useInventoryHistory } from '../hooks/useInventoryHistory';
+import { useInventoryHistory } from "../hooks/useInventoryHistory";
 
 // Componentes
-import HistoryFilters from '../components/inventory/HistoryFilters';
-import HistoryItem from '../components/inventory/HistoryItem';
-import SearchHeader from '../components/inventory/SearchHeader';
+import HistoryItem from "../components/inventory/HistoryItem";
+import SearchHeader from "../components/inventory/SearchHeader";
+
+/* ======================================================
+ * Resolver nombre humano del movimiento (CLAVE)
+ * ====================================================== */
+const getActorName = (m) =>
+  m.actorNombre ||
+  m.usuario ||
+  m.createdBy ||
+  m.updatedBy ||
+  "Sistema";
 
 export default function InventoryHistoryScreen() {
   const router = useRouter();
   const { movements, loading, error, refreshHistory } = useInventoryHistory();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('all');
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
 
-  // Filtrar y ORDENAR movimientos por fecha (más reciente primero)
-  const filteredMovements = movements
-    .filter(movement => {
-      const matchesSearch = 
-        movement.material?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        movement.usuario?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        movement.tipo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        movement.origen?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        movement.destino?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        movement.notas?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        movement.procedencia?.toLowerCase().includes(searchQuery.toLowerCase());
+  /* ==============================
+   * TIPOS DE MOVIMIENTO
+   * ============================== */
+  const movementTypes = [
+    { key: "all", label: "Todos", color: "#CBD5E1" },
+    { key: "entrada", label: "Entradas", color: "#22C55E" },
+    { key: "salida", label: "Salidas", color: "#EF4444" },
+    { key: "movimiento", label: "Ingreso a Proyecto", color: "#3B82F6" },
+    { key: "entrada_externa", label: "Material Externo", color: "#0EA5E9" },
+    { key: "uso", label: "Uso", color: "#FACC15" },
+    { key: "devolucion", label: "Devolución", color: "#14B8A6" },
+    { key: "transferencia", label: "Transferencias", color: "#A855F7" },
+  ];
 
-      const matchesFilter = selectedFilter === 'all' || movement.tipo === selectedFilter;
+  /* ==============================
+   * KPIs
+   * ============================== */
+  const stats = useMemo(() => {
+    const s = {
+      total: movements.length,
+      entrada: 0,
+      salida: 0,
+      movimiento: 0,
+      entrada_externa: 0,
+      uso: 0,
+      devolucion: 0,
+      transferencia: 0,
+    };
 
-      return matchesSearch && matchesFilter;
-    })
-    // ORDENAR por fecha más reciente primero
-    .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    movements.forEach((m) => {
+      if (s[m.tipo] !== undefined) s[m.tipo]++;
+    });
 
+    return s;
+  }, [movements]);
+
+  /* ==============================
+   * FILTRO + BÚSQUEDA
+   * ============================== */
+  const filteredMovements = useMemo(() => {
+    const q = normalize(searchQuery);
+
+    return movements
+      .filter((m) => {
+        const actor = getActorName(m);
+
+        const matchesSearch =
+          normalize(m.material || "").includes(q) ||
+          normalize(actor).includes(q) ||
+          normalize(m.origen || "").includes(q) ||
+          normalize(m.destino || "").includes(q) ||
+          normalize(m.notas || "").includes(q);
+
+        const matchesType = typeFilter === "all" || m.tipo === typeFilter;
+
+        return matchesSearch && matchesType;
+      })
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }, [movements, searchQuery, typeFilter]);
+
+  /* ==============================
+   * REFRESH
+   * ============================== */
   const onRefresh = async () => {
     setRefreshing(true);
     await refreshHistory();
     setRefreshing(false);
   };
 
-  const getMovementStats = () => {
-    const total = movements.length;
-    const entradas = movements.filter(m => m.tipo === 'entrada').length;
-    const salidas = movements.filter(m => m.tipo === 'salida').length;
-    const movimientos = movements.filter(m => m.tipo === 'movimiento').length;
-    const ediciones = movements.filter(m => m.tipo === 'edición').length;
-
-    return { total, entradas, salidas, movimientos, ediciones };
-  };
-
-  const stats = getMovementStats();
-
-  // Función para obtener el color según el tipo de movimiento
-  const getStatColor = (type) => {
-    switch (type) {
-      case 'entrada': return '#38A169';
-      case 'salida': return '#E53E3E';
-      case 'movimiento': return '#3182CE';
-      case 'edición': return '#D69E2E';
-      default: return '#718096';
-    }
-  };
-
+  /* ==============================
+   * ERROR
+   * ============================== */
   if (error) {
     return (
-      <LinearGradient colors={["#38A169", "#48BB78", "#81E6D9"]} style={{ flex: 1 }}>
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Error cargando historial</Text>
-          <Text style={styles.errorSubtext}>{error.message}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={refreshHistory}>
-            <Text style={styles.retryButtonText}>Reintentar</Text>
+      <LinearGradient colors={["#334155", "#1E293B"]} style={{ flex: 1 }}>
+        <View style={styles.errorBox}>
+          <Text style={styles.errorTitle}>Error cargando historial</Text>
+          <Text style={styles.errorDesc}>{error.message}</Text>
+
+          <TouchableOpacity style={styles.retryBtn} onPress={refreshHistory}>
+            <Text style={styles.retryText}>Reintentar</Text>
           </TouchableOpacity>
         </View>
       </LinearGradient>
     );
   }
 
+  /* ==============================
+   * UI
+   * ============================== */
   return (
-    <LinearGradient colors={["#38A169", "#48BB78", "#81E6D9"]} style={{ flex: 1 }}>
+    <LinearGradient colors={["#0F172A", "#1E293B"]} style={{ flex: 1 }}>
       <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => router.back()}
-          >
-            <Text style={styles.backButtonText}>← Volver</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>📋 Historial de Movimientos</Text>
-        </View>
-        
-        {/* Barra de búsqueda */}
+        {/* Back */}
+        <TouchableOpacity onPress={() => router.back()}>
+          <Text style={styles.back}>← Volver</Text>
+        </TouchableOpacity>
+
+        {/* Título */}
+        <Text style={styles.title}>Historial de Movimientos</Text>
+
+        {/* Buscador */}
         <SearchHeader
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          placeholder="Buscar en historial..."
+          placeholder="Buscar… material, usuario, proyecto…"
         />
 
-        {/* Filtros - Agregar filtro para ediciones */}
-        <HistoryFilters
-          selectedFilter={selectedFilter}
-          onFilterChange={setSelectedFilter}
-          showEditFilter={true}
-        />
+        {/* Filtros */}
+        <View style={styles.typeFilterRow}>
+          <FlatList
+            data={movementTypes}
+            horizontal
+            keyExtractor={(i) => i.key}
+            showsHorizontalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.typeBadge,
+                  typeFilter === item.key && {
+                    backgroundColor: item.color,
+                  },
+                ]}
+                onPress={() => setTypeFilter(item.key)}
+              >
+                <Text
+                  style={[
+                    styles.typeText,
+                    typeFilter === item.key && { color: "#000" },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
 
-        {/* Estadísticas - Agregar estadística para ediciones */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
+        {/* KPIs */}
+        <View style={styles.statsBox}>
+          <View style={styles.statCard}>
             <Text style={styles.statNumber}>{stats.total}</Text>
             <Text style={styles.statLabel}>Total</Text>
           </View>
-          <View style={[styles.statItem, { borderLeftColor: getStatColor('entrada') }]}>
-            <Text style={styles.statNumber}>{stats.entradas}</Text>
-            <Text style={styles.statLabel}>Entradas</Text>
-          </View>
-          <View style={[styles.statItem, { borderLeftColor: getStatColor('salida') }]}>
-            <Text style={styles.statNumber}>{stats.salidas}</Text>
-            <Text style={styles.statLabel}>Salidas</Text>
-          </View>
-          <View style={[styles.statItem, { borderLeftColor: getStatColor('movimiento') }]}>
-            <Text style={styles.statNumber}>{stats.movimientos}</Text>
-            <Text style={styles.statLabel}>Movimientos</Text>
-          </View>
-          <View style={[styles.statItem, { borderLeftColor: getStatColor('edición') }]}>
-            <Text style={styles.statNumber}>{stats.ediciones}</Text>
-            <Text style={styles.statLabel}>Ediciones</Text>
-          </View>
+
+          {movementTypes
+            .filter((t) => t.key !== "all")
+            .map((t) => (
+              <View
+                key={t.key}
+                style={[styles.statCard, { borderLeftColor: t.color }]}
+              >
+                <Text style={[styles.statNumber, { color: t.color }]}>
+                  {stats[t.key]}
+                </Text>
+                <Text style={styles.statLabel}>{t.label}</Text>
+              </View>
+            ))}
         </View>
 
-        {/* Información adicional */}
-        <View style={styles.infoContainer}>
-          <Text style={styles.infoText}>
-            💡 Ahora se registran: Procedencia del material y cambios de cantidad
-          </Text>
-        </View>
-
-        {/* Lista de movimientos */}
-        {loading && !refreshing ? (
-          <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Cargando historial...</Text>
-          </View>
-        ) : filteredMovements.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {searchQuery || selectedFilter !== 'all' 
-                ? 'No se encontraron movimientos' 
-                : 'No hay movimientos registrados'
-              }
-            </Text>
-            {(searchQuery || selectedFilter !== 'all') && (
-              <Text style={styles.emptySubtext}>
-                Intenta con otros términos de búsqueda o filtros
-              </Text>
-            )}
-          </View>
-        ) : (
-          <FlatList
-            data={filteredMovements}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <HistoryItem movement={item} />}
-            contentContainerStyle={styles.listContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                colors={["#38A169"]}
-                tintColor="#38A169"
-              />
-            }
-            showsVerticalScrollIndicator={false}
-          />
-        )}
+        {/* Lista */}
+        <FlatList
+          data={filteredMovements}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <HistoryItem
+              movement={{
+                ...item,
+                actorNombre: getActorName(item), // 👈 AQUÍ CLAVE
+              }}
+            />
+          )}
+          contentContainerStyle={styles.listPad}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#3B82F6"]}
+              tintColor="#3B82F6"
+            />
+          }
+        />
       </View>
     </LinearGradient>
   );
 }
 
+/* ======================================================
+ * ESTILOS
+ * ====================================================== */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    paddingTop: 60,
+    padding: 18,
+    paddingTop: 50,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 12,
-  },
-  backButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  back: { color: "#CBD5E1", fontSize: 15, marginBottom: 12 },
   title: {
-    color: '#FFF',
-    fontSize: 24,
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(44,44,58,0.7)',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-    borderLeftWidth: 2,
-    borderLeftColor: '#718096',
-    paddingHorizontal: 4,
-  },
-  statNumber: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 2,
-  },
-  statLabel: {
-    color: '#CCC',
-    fontSize: 10,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  infoContainer: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#D69E2E',
-  },
-  infoText: {
-    color: '#FFF',
-    fontSize: 12,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  listContent: {
-    paddingBottom: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#FFF',
-    fontSize: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  emptyText: {
-    color: '#FFF',
-    fontSize: 18,
-    textAlign: 'center',
-    marginBottom: 8,
-    fontWeight: '600',
-  },
-  emptySubtext: {
-    color: '#CCC',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    color: '#F56565',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    color: '#CCC',
-    fontSize: 14,
-    textAlign: 'center',
+    color: "#FFF",
+    fontWeight: "700",
+    fontSize: 22,
     marginBottom: 20,
+    textAlign: "center",
   },
-  retryButton: {
-    backgroundColor: '#5A67D8',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
+
+  typeFilterRow: { marginBottom: 12 },
+  typeBadge: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    backgroundColor: "#334155",
+    borderRadius: 20,
+    marginRight: 8,
   },
-  retryButtonText: {
-    color: '#FFF',
-    fontWeight: 'bold',
+  typeText: { color: "#FFF", fontWeight: "600" },
+
+  statsBox: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 16,
   },
+  statCard: {
+    width: "33%",
+    paddingVertical: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: "#475569",
+    alignItems: "center",
+  },
+  statNumber: { color: "#FFF", fontWeight: "700", fontSize: 16 },
+  statLabel: { color: "#94A3B8", fontSize: 11 },
+
+  listPad: { paddingBottom: 50 },
+
+  errorBox: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  errorTitle: {
+    color: "#F87171",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  errorDesc: {
+    color: "#DDD",
+    marginVertical: 10,
+    textAlign: "center",
+  },
+  retryBtn: {
+    backgroundColor: "#3B82F6",
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 16,
+  },
+  retryText: { color: "#FFF", fontWeight: "700" },
 });

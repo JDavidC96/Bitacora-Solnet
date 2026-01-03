@@ -1,307 +1,436 @@
 // services/budgetService.js
 import {
-    arrayUnion,
-    collection, doc,
-    getDoc, getDocs,
-    setDoc,
-    updateDoc
-} from 'firebase/firestore';
-import { db } from '../firebase/firebaseConfig';
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import { db } from "../firebase/firebaseConfig";
+
+/**
+ * Estructura en Firestore:
+ *
+ * proyectos/{projectId}/presupuesto (colección)
+ *   - config (doc): configuración global del presupuesto
+ *       {
+ *         tipo: "config",
+ *         utilidadGlobal: 25,
+ *         aiu: { administracion: 8, imprevistos: 2, utilidad: 5 }
+ *       }
+ *   - {itemId} (doc por ítem)
+ *       {
+ *         faseKey: "fase1" | "fase2" | "fase3" | "fase4",
+ *         nombre: string,
+ *         unidades: number,
+ *         costoUnitario: number,
+ *         aplicaIva: boolean,
+ *         unidad: string,
+ *         categoria: string,
+ *         notas: string
+ *       }
+ */
+
+const FASES_INFO = {
+  fase1: { nombre: "Equipos y estructura" },
+  fase2: { nombre: "Sistema eléctrico asociado al proyecto" },
+  fase3: { nombre: "Instalación y puesta en servicio" },
+  fase4: {
+    nombre: "Trámites de conexión, mantenimientos, otras actividades",
+  },
+};
+
+// valores por defecto si no hay config
+const DEFAULT_CONFIG = {
+  utilidadGlobal: 0, // el usuario la definirá en pantalla
+  aiu: {
+    administracion: 8,
+    imprevistos: 2,
+    utilidad: 5,
+  },
+};
+
+// ---------------------------
+// Helpers internos de cálculo
+// ---------------------------
+
+/**
+ * Calcula los valores financieros de un ítem según la utilidad global.
+ * NO se persisten estos campos en Firestore; se calculan al vuelo.
+ */
+function calcularItemConUtilidad(item, utilidadGlobal) {
+  const unidades = Number(item.unidades) || 0;
+  const costoUnitario = Number(item.costoUnitario) || 0;
+
+  const costoTotal = unidades * costoUnitario;
+
+  let precioIndividual = costoUnitario;
+  if (utilidadGlobal > 0 && utilidadGlobal < 100) {
+    const margen = 1 - utilidadGlobal / 100; // ej: 25% -> 0.75
+    if (margen !== 0) {
+      precioIndividual = costoUnitario / margen;
+    }
+  }
+
+  const valorTotal = precioIndividual * unidades;
+  const utilidad = valorTotal - costoTotal;
+
+  return {
+    ...item,
+    unidades,
+    costoUnitario,
+    costoTotal,
+    precioIndividual,
+    valorTotal,
+    utilidad,
+  };
+}
+
+// crea config + items base fase3/fase4 si no hay nada
+async function crearPresupuestoInicial(projectId) {
+  const colRef = collection(db, "proyectos", projectId, "presupuesto");
+
+  // doc de configuración
+  const configRef = doc(colRef, "config");
+  await setDoc(configRef, {
+    tipo: "config",
+    ...DEFAULT_CONFIG,
+  });
+
+  // Ítems base FASE 3
+  const fase3Base = [
+    "Día de técnico",
+    "Día de ingeniero",
+    "Hidratación",
+    "Almuerzos",
+    "Gasolina",
+    "Hospedaje",
+    "Viáticos varios",
+  ];
+
+  for (const nombre of fase3Base) {
+    await addDoc(colRef, {
+      faseKey: "fase3",
+      nombre,
+      unidades: 0,
+      costoUnitario: 0,
+      aplicaIva: false, // mano de obra / viáticos
+      unidad: "un",
+      categoria: "instalacion",
+      notas: "",
+    });
+  }
+
+  // Ítems base FASE 4
+  const fase4Base = [
+    "Visita ingeniería de detalle (memorias y planos)",
+    "Comisiones",
+    "Certificado RETIE de la instalación",
+    "Trámite CREG",
+    "Trámite UPME",
+    "Estudio de conexión",
+  ];
+
+  for (const nombre of fase4Base) {
+    await addDoc(colRef, {
+      faseKey: "fase4",
+      nombre,
+      unidades: 1,
+      costoUnitario: 0,
+      aplicaIva: false,
+      unidad: "un",
+      categoria: "tramites",
+      notas: "",
+    });
+  }
+}
 
 export const budgetService = {
-  // Crear presupuesto para un proyecto
-  async create(projectId, budgetData) {
-    try {
-      const budgetRef = doc(collection(db, 'proyectos', projectId, 'presupuesto'));
-      
-      const budget = {
-        id: budgetRef.id,
-        proyectoId: projectId,
-        nombre: budgetData.nombre,
-        creadoPor: budgetData.creadoPor,
-        proyectoNombre: budgetData.proyectoNombre,
-        fechaCreacion: new Date().toISOString(),
-        estado: 'activo',
-        
-        // Estructura de las 4 fases
-        fases: {
-          fase1: { 
-            nombre: 'Equipos y Estructura',
-            items: [],
-            total: 0,
-            aplicaIva: true
-          },
-          fase2: { 
-            nombre: 'Sistema Eléctrico Asociado',
-            items: [],
-            total: 0,
-            aplicaIva: true
-          },
-          fase3: { 
-            nombre: 'Instalación y Puesta en Servicio',
-            personal: [],
-            viaticos: [],
-            total: 0,
-            aplicaIva: false
-          },
-          fase4: { 
-            nombre: 'Trámites de Conexión y Mantenimientos',
-            items: [],
-            total: 0,
-            aplicaIva: false
-          }
-        },
-        
-        // Configuración de porcentajes
-        porcentajes: {
-          administracion: 8,
-          imprevistos: 2,
-          utilidad: 5
-        },
-        
-        // Cálculos globales (se llenan automáticamente)
-        calculosGlobales: {
-          administracion: 0,
-          imprevistos: 0,
-          utilidad: 0,
-          ivaUtilidad: 0,
-          ivaFase1: 0,
-          ivaFase2: 0
-        },
-        
-        totalGeneral: 0
-      };
+  /**
+   * Obtiene el presupuesto completo de un proyecto.
+   * Si no existe nada, crea configuración + ítems base y devuelve estructura inicial.
+   */
+  async getBudgetByProject(projectId) {
+    const colRef = collection(db, "proyectos", projectId, "presupuesto");
+    let snap = await getDocs(colRef);
 
-      await setDoc(budgetRef, budget);
-      return budget;
-    } catch (error) {
-      throw new Error(`Error creando presupuesto: ${error.message}`);
+    // Si no hay nada, inicializamos config + ítems base
+    if (snap.empty) {
+      await crearPresupuestoInicial(projectId);
+      snap = await getDocs(colRef);
     }
-  },
 
-  // Obtener presupuesto de un proyecto
-  async getByProject(projectId) {
-    try {
-      const presupuestoRef = collection(db, 'proyectos', projectId, 'presupuesto');
-      const querySnapshot = await getDocs(presupuestoRef);
-      
-      if (querySnapshot.empty) {
-        return null;
+    // Leer config e ítems
+    let config = { ...DEFAULT_CONFIG };
+    const itemsRaw = [];
+
+    snap.forEach((d) => {
+      const data = d.data();
+      if (d.id === "config" || data.tipo === "config") {
+        config = {
+          ...DEFAULT_CONFIG,
+          ...data,
+          aiu: { ...DEFAULT_CONFIG.aiu, ...(data.aiu || {}) },
+        };
+      } else {
+        itemsRaw.push({ id: d.id, ...data });
       }
-      
-      // Tomar el primer presupuesto (podría extenderse para múltiples)
-      const doc = querySnapshot.docs[0];
-      return {
-        id: doc.id,
-        ...doc.data()
-      };
-    } catch (error) {
-      throw new Error(`Error obteniendo presupuesto: ${error.message}`);
-    }
-  },
+    });
 
-  // Agregar item a Fase 1 o 2
-  async addItem(projectId, budgetId, fase, itemData) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      
-      // Calcular precios automáticamente
-      const itemCalculado = this.calcularItemFase12(itemData);
-      
-      await updateDoc(budgetRef, {
-        [`fases.${fase}.items`]: arrayUnion(itemCalculado),
-        [`fases.${fase}.total`]: this.calcularTotalFase(fase, itemCalculado)
-      });
-      
-      // Recalcular totales globales
-      await this.recalcularTotales(projectId, budgetId);
-      
-      return itemCalculado;
-    } catch (error) {
-      throw new Error(`Error agregando item: ${error.message}`);
-    }
-  },
+    const utilidadGlobal = Number(config.utilidadGlobal) || 0;
+    const porcAdm = Number(config.aiu?.administracion ?? 0);
+    const porcImp = Number(config.aiu?.imprevistos ?? 0);
+    const porcUtiAIU = Number(config.aiu?.utilidad ?? 0);
 
-  // Agregar personal a Fase 3
-  async addPersonal(projectId, budgetId, personalData) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      
-      const personalCalculado = {
-        ...personalData,
-        totalPresupuestado: (personalData.diasPresupuestados || 0) * (personalData.valorDiaPresupuestado || 0)
-      };
-      
-      await updateDoc(budgetRef, {
-        [`fases.fase3.personal`]: arrayUnion(personalCalculado)
-      });
-      
-      await this.recalcularTotales(projectId, budgetId);
-      
-      return personalCalculado;
-    } catch (error) {
-      throw new Error(`Error agregando personal: ${error.message}`);
-    }
-  },
+    // Estructura de fases
+    const fases = {
+      fase1: { nombre: FASES_INFO.fase1.nombre, items: [], total: 0 },
+      fase2: { nombre: FASES_INFO.fase2.nombre, items: [], total: 0 },
+      fase3: { nombre: FASES_INFO.fase3.nombre, items: [], total: 0 },
+      fase4: { nombre: FASES_INFO.fase4.nombre, items: [], total: 0 },
+    };
 
-  // Agregar viáticos a Fase 3
-  async addViaticos(projectId, budgetId, viaticoData) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      
-      await updateDoc(budgetRef, {
-        [`fases.fase3.viaticos`]: arrayUnion(viaticoData)
-      });
-      
-      await this.recalcularTotales(projectId, budgetId);
-      
-      return viaticoData;
-    } catch (error) {
-      throw new Error(`Error agregando viáticos: ${error.message}`);
-    }
-  },
+    // Totales generales por proyecto
+    let costoTotalProyecto = 0;
+    let valorTotalProyecto = 0;
+    let utilidadTotalProyecto = 0;
 
-  // Agregar item a Fase 4
-  async addItemFase4(projectId, budgetId, itemData) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      
-      const itemCalculado = {
-        ...itemData,
-        unidades: 1, // Fase 4 siempre es 1 unidad
-        costoTotal: itemData.costoUnitario || 0,
-        precioVentaTotal: itemData.costoUnitario || 0 // Sin utilidad en fase 4
-      };
-      
-      await updateDoc(budgetRef, {
-        [`fases.fase4.items`]: arrayUnion(itemCalculado),
-        [`fases.fase4.total`]: this.calcularTotalFase('fase4', itemCalculado)
-      });
-      
-      await this.recalcularTotales(projectId, budgetId);
-      
-      return itemCalculado;
-    } catch (error) {
-      throw new Error(`Error agregando item fase 4: ${error.message}`);
-    }
-  },
+    // Bases para IVA por fase
+    let baseIvaF1 = 0;
+    let baseIvaF2 = 0;
+    let baseIvaF4 = 0;
 
-  // Cálculos automáticos para Fase 1 y 2
-  calcularItemFase12(itemData) {
-    const { unidades, costoUnitario, aplicaIva = true, utilidadPorcentaje = 10 } = itemData;
-    
-    const costoTotal = unidades * costoUnitario;
-    const utilidadValor = costoTotal * (utilidadPorcentaje / 100);
-    const precioSinIva = costoTotal + utilidadValor;
-    const iva = aplicaIva ? precioSinIva * 0.19 : 0;
-    const precioConIva = precioSinIva + iva;
-    
+    // -----------------------------
+    // Procesar todos los ítems
+    // -----------------------------
+    itemsRaw.forEach((raw) => {
+      const faseKey = raw.faseKey || "fase1";
+      if (!fases[faseKey]) return;
+
+      const aplicaIva = raw.aplicaIva ?? true;
+
+      const itemCalc = calcularItemConUtilidad(
+        { ...raw, aplicaIva },
+        utilidadGlobal
+      );
+
+      // Acumular en la fase
+      fases[faseKey].items.push(itemCalc);
+      fases[faseKey].total += itemCalc.valorTotal;
+
+      // Acumular totales generales
+      costoTotalProyecto += itemCalc.costoTotal;
+      valorTotalProyecto += itemCalc.valorTotal;
+      utilidadTotalProyecto += itemCalc.utilidad;
+
+      // Base IVA por fase (solo sobre ítems que aplican IVA)
+      if (aplicaIva) {
+        if (faseKey === "fase1") baseIvaF1 += itemCalc.valorTotal;
+        if (faseKey === "fase2") baseIvaF2 += itemCalc.valorTotal;
+        if (faseKey === "fase4") baseIvaF4 += itemCalc.valorTotal;
+      }
+    });
+
+    // Total antes de IVA (suma de VALOR TOTAL de todas las fases)
+    const totalAntesIVA =
+      fases.fase1.total +
+      fases.fase2.total +
+      fases.fase3.total +
+      fases.fase4.total;
+
+    // IVA por fase (solo en resumen general)
+    const ivaFase1 = baseIvaF1 * 0.19;
+    const ivaFase2 = baseIvaF2 * 0.19;
+    const ivaFase4 = baseIvaF4 * 0.19; // fase 3 no genera IVA
+
+    // AIU sobre valor total de fase3 + fase4
+    const baseAIU = fases.fase3.total + fases.fase4.total;
+    const administracion = (baseAIU * porcAdm) / 100;
+    const imprevistos = (baseAIU * porcImp) / 100;
+    const utilidadAIU = (baseAIU * porcUtiAIU) / 100;
+    const ivaUtilidadAIU = utilidadAIU * 0.19;
+
+    const totalGeneral =
+      totalAntesIVA +
+      ivaFase1 +
+      ivaFase2 +
+      ivaFase4 +
+      administracion +
+      imprevistos +
+      utilidadAIU +
+      ivaUtilidadAIU;
+
+    const totalesGenerales = {
+      costoTotalProyecto,
+      valorTotalProyecto,
+      utilidadTotalProyecto,
+    };
+
+    const calculosGlobales = {
+      totalAntesIVA,
+      ivaFase1,
+      ivaFase2,
+      ivaFase4,
+      baseAIU,
+      administracion,
+      imprevistos,
+      utilidadAIU,
+      ivaUtilidadAIU,
+    };
+
     return {
-      ...itemData,
-      costoTotal,
-      utilidadPorcentaje,
-      utilidadValor,
-      precioSinIva,
-      iva,
-      precioConIva,
-      precioUnitarioConIva: precioConIva / unidades
+      id: "presupuesto",
+      fases,
+      utilidadGlobal,
+      porcentajesAIU: {
+        administracion: porcAdm,
+        imprevistos: porcImp,
+        utilidad: porcUtiAIU,
+      },
+      totalesGenerales,
+      calculosGlobales,
+      totalGeneral,
     };
   },
 
-  // Calcular total de una fase
-  calcularTotalFase(fase, nuevoItem) {
-    // Esta función se complementaría con el total existente
-    // Por simplicidad, devuelve el valor del nuevo item
-    return nuevoItem.precioConIva || nuevoItem.costoTotal || 0;
-  },
+  // --------------------------------------------------
+  // CRUD de ítems (compatible con tu BudgetScreen)
+  // --------------------------------------------------
 
-  // Recalcular todos los totales globales
-  async recalcularTotales(projectId, budgetId) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      const budgetDoc = await getDoc(budgetRef);
-      
-      if (!budgetDoc.exists()) return;
-      
-      const budget = budgetDoc.data();
-      
-      // Calcular subtotales por fase
-      const totalFase1 = budget.fases.fase1.total || 0;
-      const totalFase2 = budget.fases.fase2.total || 0;
-      const totalFase3 = budget.fases.fase3.total || 0;
-      const totalFase4 = budget.fases.fase4.total || 0;
-      
-      // Base para cálculos globales (Fase 3 + Fase 4)
-      const baseCalculosGlobales = totalFase3 + totalFase4;
-      
-      // Cálculos globales
-      const administracion = baseCalculosGlobales * (budget.porcentajes.administracion / 100);
-      const imprevistos = baseCalculosGlobales * (budget.porcentajes.imprevistos / 100);
-      const utilidad = baseCalculosGlobales * (budget.porcentajes.utilidad / 100);
-      const ivaUtilidad = utilidad * 0.19;
-      
-      // IVA de Fase 1 y 2
-      const ivaFase1 = totalFase1 * 0.19; // Asumiendo que todo aplica IVA
-      const ivaFase2 = totalFase2 * 0.19; // Asumiendo que todo aplica IVA
-      
-      // Total General
-      const totalGeneral = totalFase1 + totalFase2 + totalFase3 + totalFase4 + 
-                          administracion + imprevistos + utilidad + 
-                          ivaUtilidad + ivaFase1 + ivaFase2;
-      
-      await updateDoc(budgetRef, {
-        'calculosGlobales.administracion': administracion,
-        'calculosGlobales.imprevistos': imprevistos,
-        'calculosGlobales.utilidad': utilidad,
-        'calculosGlobales.ivaUtilidad': ivaUtilidad,
-        'calculosGlobales.ivaFase1': ivaFase1,
-        'calculosGlobales.ivaFase2': ivaFase2,
-        totalGeneral: totalGeneral
-      });
-      
-    } catch (error) {
-      throw new Error(`Error recalculando totales: ${error.message}`);
+  /**
+   * Agregar ítem a cualquier fase (1–4).
+   * El parámetro budgetId NO se usa, solo se mantiene por compatibilidad.
+   */
+  async addItem(projectId, _budgetId, faseKey, itemData) {
+    const colRef = collection(db, "proyectos", projectId, "presupuesto");
+
+    const payload = {
+      faseKey,
+      nombre: itemData.nombre || "",
+      unidades: Number(itemData.unidades) || 0,
+      costoUnitario: Number(itemData.costoUnitario) || 0,
+      aplicaIva: itemData.aplicaIva ?? true,
+      unidad: itemData.unidad || "un",
+      categoria: itemData.categoria || "",
+      notas: itemData.notas || "",
+    };
+
+    // si viene id desde la UI, lo usamos, si no dejamos que Firestore lo genere
+    if (itemData.id) {
+      const ref = doc(colRef, itemData.id);
+      await setDoc(ref, payload);
+      return { id: itemData.id, ...payload };
+    } else {
+      const ref = await addDoc(colRef, payload);
+      return { id: ref.id, ...payload };
     }
   },
 
-  // Actualizar porcentajes
-  async updatePorcentajes(projectId, budgetId, nuevosPorcentajes) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      
-      await updateDoc(budgetRef, {
-        'porcentajes.administracion': nuevosPorcentajes.administracion,
-        'porcentajes.imprevistos': nuevosPorcentajes.imprevistos,
-        'porcentajes.utilidad': nuevosPorcentajes.utilidad
-      });
-      
-      // Recalcular con nuevos porcentajes
-      await this.recalcularTotales(projectId, budgetId);
-      
-    } catch (error) {
-      throw new Error(`Error actualizando porcentajes: ${error.message}`);
-    }
+  async addItemFase4(projectId, budgetId, itemData) {
+    return this.addItem(projectId, budgetId, "fase4", itemData);
   },
 
-  // Eliminar item de cualquier fase
-  async deleteItem(projectId, budgetId, fase, itemId) {
-    try {
-      const budgetRef = doc(db, 'proyectos', projectId, 'presupuesto', budgetId);
-      const budgetDoc = await getDoc(budgetRef);
-      
-      if (!budgetDoc.exists()) return;
-      
-      const budget = budgetDoc.data();
-      const items = budget.fases[fase].items.filter(item => item.id !== itemId);
-      
-      await updateDoc(budgetRef, {
-        [`fases.${fase}.items`]: items
+  /**
+   * Actualizar un ítem.
+   */
+  async updateItem(projectId, _budgetId, _faseKey, itemData) {
+    if (!itemData.id) {
+      throw new Error("updateItem requiere itemData.id");
+    }
+    const ref = doc(
+      db,
+      "proyectos",
+      projectId,
+      "presupuesto",
+      itemData.id
+    );
+
+    const payload = {
+      nombre: itemData.nombre || "",
+      unidades: Number(itemData.unidades) || 0,
+      costoUnitario: Number(itemData.costoUnitario) || 0,
+      aplicaIva: itemData.aplicaIva ?? true,
+      unidad: itemData.unidad || "un",
+      categoria: itemData.categoria || "",
+      notas: itemData.notas || "",
+      faseKey: itemData.faseKey || "fase1",
+    };
+
+    await updateDoc(ref, payload);
+    return { id: itemData.id, ...payload };
+  },
+
+  async updateItemFase4(projectId, budgetId, itemData) {
+    return this.updateItem(projectId, budgetId, "fase4", itemData);
+  },
+
+  /**
+   * Eliminar ítem.
+   */
+  async deleteItem(projectId, _budgetId, _faseKey, itemId) {
+    const ref = doc(db, "proyectos", projectId, "presupuesto", itemId);
+    await deleteDoc(ref);
+  },
+
+  async deleteItemFase4(projectId, budgetId, itemId) {
+    return this.deleteItem(projectId, budgetId, "fase4", itemId);
+  },
+
+  // --------------------------------------------------
+  // Configuración global (utilidad y AIU)
+  // --------------------------------------------------
+
+  /**
+   * Actualizar % de utilidad global (aplica a TODOS los ítems).
+   */
+  async updateUtilidadGlobal(projectId, utilidadGlobal) {
+    const colRef = collection(db, "proyectos", projectId, "presupuesto");
+    const configRef = doc(colRef, "config");
+    const snap = await getDoc(configRef);
+
+    if (!snap.exists()) {
+      await setDoc(configRef, {
+        tipo: "config",
+        ...DEFAULT_CONFIG,
+        utilidadGlobal: Number(utilidadGlobal) || 0,
       });
-      
-      await this.recalcularTotales(projectId, budgetId);
-      
-    } catch (error) {
-      throw new Error(`Error eliminando item: ${error.message}`);
+    } else {
+      await updateDoc(configRef, {
+        utilidadGlobal: Number(utilidadGlobal) || 0,
+      });
     }
   }
+
+  ,
+  /**
+   * Actualizar porcentajes de AIU.
+   */
+  async updateAIU(projectId, { administracion, imprevistos, utilidad }) {
+    const colRef = collection(db, "proyectos", projectId, "presupuesto");
+    const configRef = doc(colRef, "config");
+    const snap = await getDoc(configRef);
+
+    const aiu = {
+      administracion: Number(administracion) || 0,
+      imprevistos: Number(imprevistos) || 0,
+      utilidad: Number(utilidad) || 0,
+    };
+
+    if (!snap.exists()) {
+      await setDoc(configRef, {
+        tipo: "config",
+        ...DEFAULT_CONFIG,
+        aiu,
+      });
+    } else {
+      await updateDoc(configRef, {
+        aiu,
+      });
+    }
+  },
 };
+
+export default budgetService;

@@ -102,9 +102,28 @@ export default function MoveItemModal({
             {/* Información del item */}
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{selectedItem.nombre}</Text>
+              
+              {/* Mostrar código si existe */}
+              {selectedItem.codigo && (
+                <Text style={styles.itemCode}>Código: {selectedItem.codigo}</Text>
+              )}
+              
               <Text style={styles.itemDetails}>
                 Disponible: {selectedItem.cantidad} {selectedItem.tipo_medida || 'Unidad'}
               </Text>
+              
+              {/* Mostrar información de precios */}
+              {selectedItem.precio > 0 && (
+                <View style={styles.priceInfo}>
+                  <Text style={styles.priceText}>
+                    Precio: ${selectedItem.precio.toLocaleString()} {selectedItem.tipo_medida === 'Unidad' ? 'c/u' : ''}
+                  </Text>
+                  <Text style={styles.totalValueText}>
+                    Valor total: ${(selectedItem.precio * selectedItem.cantidad).toLocaleString()}
+                  </Text>
+                </View>
+              )}
+              
               {selectedItem.notas && (
                 <Text style={styles.itemNotes}>Notas: {selectedItem.notas}</Text>
               )}
@@ -126,9 +145,17 @@ export default function MoveItemModal({
                 }}
               />
               {moveData.cantidad && !isNaN(parseInt(moveData.cantidad)) && (
-                <Text style={styles.remainingText}>
-                  Quedarán: {selectedItem.cantidad - parseInt(moveData.cantidad)} {selectedItem.tipo_medida || 'Unidad'}
-                </Text>
+                <View style={styles.remainingInfo}>
+                  <Text style={styles.remainingText}>
+                    Quedarán: {selectedItem.cantidad - parseInt(moveData.cantidad)} {selectedItem.tipo_medida || 'Unidad'}
+                  </Text>
+                  {/* Mostrar valor del movimiento */}
+                  {selectedItem.precio > 0 && (
+                    <Text style={styles.moveValueText}>
+                      Valor del movimiento: ${(selectedItem.precio * parseInt(moveData.cantidad)).toLocaleString()}
+                    </Text>
+                  )}
+                </View>
               )}
             </View>
 
@@ -178,6 +205,9 @@ export default function MoveItemModal({
                     />
                     {proyectoSeleccionado && (
                       <View style={styles.selectedProjectInfo}>
+                        <Text style={styles.selectedProjectText}>
+                          📋 {proyectoSeleccionado.title}
+                        </Text>
                         {proyectoSeleccionado.description && (
                           <Text style={styles.selectedProjectDescription}>
                             {proyectoSeleccionado.description}
@@ -284,11 +314,41 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 8,
   },
+  itemCode: {
+    color: '#805AD5',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+    backgroundColor: 'rgba(128, 90, 213, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
   itemDetails: {
     color: '#81E6D9',
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
+  },
+  priceInfo: {
+    backgroundColor: 'rgba(56, 161, 105, 0.1)',
+    padding: 10,
+    borderRadius: 6,
+    marginVertical: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#38A169',
+  },
+  priceText: {
+    color: '#38A169',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  totalValueText: {
+    color: '#2D3748',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   itemNotes: {
     color: '#CCC',
@@ -315,11 +375,20 @@ const styles = StyleSheet.create({
     color: '#000',
     minHeight: 50,
   },
+  remainingInfo: {
+    marginTop: 6,
+  },
   remainingText: {
     color: '#38B2AC',
     fontSize: 14,
     marginTop: 6,
     fontWeight: '500',
+  },
+  moveValueText: {
+    color: '#D69E2E',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
   },
   noProjects: {
     backgroundColor: 'rgba(229, 62, 62, 0.1)',

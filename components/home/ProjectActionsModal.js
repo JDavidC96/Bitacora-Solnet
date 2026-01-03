@@ -2,6 +2,7 @@
 import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import ModalBase from '../ModalBase';
 
+
 export default function ProjectActionsModal({ 
   visible, 
   project, 
@@ -9,7 +10,10 @@ export default function ProjectActionsModal({
   onEdit, 
   onAssign, 
   onDelete,
-  canManage = true,
+  canIngenieroRole,
+  onAssignMe,
+  onUnassignMe,
+  isAssignedToThisProject,
   loading = false 
 }) {
   if (!project) return null;
@@ -17,24 +21,22 @@ export default function ProjectActionsModal({
   return (
     <ModalBase
       visible={visible}
-      title={`Acciones: ${project.title || ''}`}
+      title={`Acciones del proyecto`}
       onClose={onClose}
     >
       <Text style={styles.projectInfo}>
-        Proyecto: {project.title}
-        {project.ubicacion && `\nUbicación: ${project.ubicacion}`}
+        {project.title}
+        {project.ubicacion && `\n📍 ${project.ubicacion}`}
       </Text>
 
       <View style={styles.actionsContainer}>
-        {/* Estado de loading */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#FF4500" />
-            <Text style={styles.loadingText}>Eliminando proyecto...</Text>
+            <ActivityIndicator size="large" color="#F97316" />
+            <Text style={styles.loadingText}>Procesando...</Text>
           </View>
         ) : (
           <>
-            {/* Asignar personal */}
             <TouchableOpacity
               style={[styles.actionButton, styles.assignButton]}
               onPress={onAssign}
@@ -42,7 +44,6 @@ export default function ProjectActionsModal({
               <Text style={styles.actionButtonText}>➕ Asignar personal</Text>
             </TouchableOpacity>
 
-            {/* Editar proyecto */}
             {canManage && (
               <TouchableOpacity
                 style={[styles.actionButton, styles.editButton]}
@@ -52,7 +53,6 @@ export default function ProjectActionsModal({
               </TouchableOpacity>
             )}
 
-            {/* Eliminar proyecto */}
             {canManage && (
               <TouchableOpacity
                 style={[styles.actionButton, styles.deleteButton]}
@@ -70,35 +70,34 @@ export default function ProjectActionsModal({
 
 const styles = {
   projectInfo: {
-    color: '#CCC',
+    color: '#E5E7EB',
     fontSize: 14,
     marginBottom: 16,
     textAlign: 'center',
     lineHeight: 20,
   },
   actionsContainer: {
-    gap: 12,
+    gap: 10,
   },
   actionButton: {
-    paddingVertical: 14,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: 'center',
   },
   assignButton: {
-    backgroundColor: '#3182CE',
+    backgroundColor: '#2563EB',
   },
   editButton: {
-    backgroundColor: '#5A67D8',
+    backgroundColor: '#4F46E5',
   },
   deleteButton: {
-    backgroundColor: '#E53E3E',
+    backgroundColor: '#DC2626',
   },
   actionButtonText: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
-  //  loading
   loadingContainer: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -106,8 +105,8 @@ const styles = {
   },
   loadingText: {
     marginTop: 12,
-    color: '#FFFFFF',
-    fontSize: 16,
+    color: '#F9FAFB',
+    fontSize: 15,
     fontWeight: '500',
   },
 };

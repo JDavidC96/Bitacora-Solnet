@@ -1,229 +1,352 @@
 // app/AdminHistoryScreen.js
 import { LinearGradient } from "expo-linear-gradient";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { useEffect, useState } from "react";
-import { FlatList, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
-import { useUser } from "../context/UserContext";
+import {
+  collection,
+  collectionGroup,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+} from "firebase/firestore";
+import { useEffect, useMemo, useState } from "react";
+import {
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+
 import { db } from "../firebase/firebaseConfig";
 import { usePermissions } from "../hooks/usePermissions";
 import { adminHistoryService } from "../services/adminHistoryService";
 
+/* ======================================================
+ * HELPERS FECHA
+ * ====================================================== */
+const toDateSafe = (value) => {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate();
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const formatDate = (value) => {
+  const d = toDateSafe(value);
+  return d ? d.toLocaleString() : "—";
+};
+
+const resolveNoteDate = (item) => {
+  if (item.timestamp) return new Date(Number(item.timestamp));
+  if (item.createdAt) return new Date(item.createdAt);
+  if (item.fechaISO && item.hora)
+    return new Date(`${item.fechaISO} ${item.hora}`);
+  return item.fechaISO || null;
+};
+
+/* ======================================================
+ * COMPONENT
+ * ====================================================== */
 export default function AdminHistoryScreen() {
-  const { role } = useUser();
   const { canProrrogaRole } = usePermissions();
-  
+
   const [combinedHistory, setCombinedHistory] = useState([]);
   const [lastLogins, setLastLogins] = useState([]);
   const [systemStats, setSystemStats] = useState({});
+  const [projectNames, setProjectNames] = useState({});
+
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
 
-  // Verificar permisos
+  /* ======================================================
+   * PERMISOS
+   * ====================================================== */
   if (!canProrrogaRole) {
     return (
       <LinearGradient colors={["#141E30", "#243B55"]} style={styles.container}>
-        <Text style={styles.errorText}>Acceso denegado. Solo administradores pueden ver esta pantalla.</Text>
+        <Text style={styles.errorText}>
+          Acceso denegado. Solo administradores pueden ver esta pantalla.
+        </Text>
       </LinearGradient>
     );
   }
 
-  // Cargar datos iniciales
+  /* ======================================================
+   * CARGA INICIAL
+   * ====================================================== */
   useEffect(() => {
-    loadAllData();
-    setupRealtimeListeners();
+    loadInitialData();
+    const cleanup = setupRealtimeListeners();
+    return cleanup;
   }, []);
 
-  const loadAllData = async () => {
+  const loadInitialData = async () => {
     try {
-      const [logins, stats, notes] = await Promise.all([
+      const [logins, stats, projectsSnap] = await Promise.all([
         adminHistoryService.getLastLogins(),
         adminHistoryService.getSystemStats(),
-        adminHistoryService.getRecentNotes(20)
+        getDocs(collection(db, "proyectos")),
       ]);
+
       setLastLogins(logins);
       setSystemStats(stats);
-      
-      // Combinar notas con el historial
-      setCombinedHistory(prev => {
-        const filtered = prev.filter(item => item.type !== 'nota');
-        return [...filtered, ...notes].sort((a, b) => 
-          new Date(b.fecha?.toDate?.() || b.fecha) - new Date(a.fecha?.toDate?.() || a.fecha)
-        );
+
+      const map = {};
+      projectsSnap.docs.forEach((d) => {
+        map[d.id] = d.data().title || d.data().nombre || "Proyecto";
       });
-    } catch (error) {
-      console.error('Error cargando datos:', error);
+      setProjectNames(map);
+    } catch (err) {
+      console.error("Error cargando datos admin:", err);
     }
   };
 
+  /* ======================================================
+   * REALTIME LISTENERS
+   * ====================================================== */
   const setupRealtimeListeners = () => {
-    const collections = [
-      "historial_herramientas",
-      "inventario_movimientos"
-    ];
-
     const unsubscribes = [];
 
-    collections.forEach(collectionName => {
-      const q = query(
-        collection(db, collectionName),
-        orderBy("fecha", "desc")
-      );
-      
-      const unsub = onSnapshot(q, (snap) => {
-        const newData = snap.docs.map((d) => ({ 
-          id: d.id, 
-          ...d.data(),
-          type: collectionName
-        }));
-        
-        // Actualizar datos combinados manteniendo el estado anterior
-        setCombinedHistory(prev => {
-          const otherData = prev.filter(item => item.type !== collectionName && item.type !== 'nota');
-          return [...otherData, ...newData].sort((a, b) => 
-            new Date(b.fecha?.toDate?.() || b.fecha) - new Date(a.fecha?.toDate?.() || a.fecha)
-          );
-        });
-      });
-      
-      unsubscribes.push(unsub);
-    });
+    // INVENTARIO
+    unsubscribes.push(
+      onSnapshot(
+        query(
+          collection(db, "inventario_movimientos"),
+          orderBy("fecha", "desc")
+        ),
+        (snap) => {
+          const data = snap.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+            type: "inventario_movimientos",
+          }));
+          setCombinedHistory((prev) => [
+            ...prev.filter((i) => i.type !== "inventario_movimientos"),
+            ...data,
+          ]);
+        }
+      )
+    );
 
-    return () => unsubscribes.forEach(unsub => unsub());
+    // HERRAMIENTAS
+    unsubscribes.push(
+      onSnapshot(
+        query(
+          collection(db, "historial_herramientas"),
+          orderBy("fecha", "desc")
+        ),
+        (snap) => {
+          const data = snap.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+            type: "historial_herramientas",
+          }));
+          setCombinedHistory((prev) => [
+            ...prev.filter((i) => i.type !== "historial_herramientas"),
+            ...data,
+          ]);
+        }
+      )
+    );
+
+    // NOTAS (collectionGroup)
+    unsubscribes.push(
+      onSnapshot(
+        query(collectionGroup(db, "notas"), orderBy("fechaISO", "desc")),
+        (snap) => {
+          const notes = snap.docs.map((d) => {
+            const parts = d.ref.path.split("/");
+            const projectId = parts[1];
+            return {
+              id: d.id,
+              projectId,
+              ...d.data(),
+              type: "nota",
+            };
+          });
+
+          setCombinedHistory((prev) => [
+            ...prev.filter((i) => i.type !== "nota"),
+            ...notes,
+          ]);
+        }
+      )
+    );
+
+    return () => unsubscribes.forEach((u) => u());
   };
 
+  /* ======================================================
+   * REFRESH
+   * ====================================================== */
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadAllData();
+    await loadInitialData();
     setRefreshing(false);
   };
 
-  const handleSearch = (text) => {
-    setSearch(text);
-  };
+  /* ======================================================
+   * FILTROS + BUSQUEDA
+   * ====================================================== */
+  const filteredData = useMemo(() => {
+    let data = [...combinedHistory];
 
-  const filterByTab = (data) => {
-    let filtered = data;
-    
-    if (activeTab === "all") filtered = data;
-    else if (activeTab === "inventory") filtered = data.filter(item => item.type === "inventario_movimientos");
-    else if (activeTab === "equipment") filtered = data.filter(item => item.type === "historial_herramientas");
-    else if (activeTab === "notes") filtered = data.filter(item => item.type === "nota");
-    
-    // Aplicar búsqueda
+    if (activeTab === "inventory")
+      data = data.filter((i) => i.type === "inventario_movimientos");
+    else if (activeTab === "equipment")
+      data = data.filter((i) => i.type === "historial_herramientas");
+    else if (activeTab === "notes")
+      data = data.filter((i) => i.type === "nota");
+
     if (search.trim()) {
-      filtered = filtered.filter(item =>
-        (item.accion && item.accion.toLowerCase().includes(search.toLowerCase())) ||
-        (item.herramienta && item.herramienta.toLowerCase().includes(search.toLowerCase())) ||
-        (item.usuario && item.usuario.toLowerCase().includes(search.toLowerCase())) ||
-        (item.material && item.material.toLowerCase().includes(search.toLowerCase())) ||
-        (item.contenido && item.contenido.toLowerCase().includes(search.toLowerCase())) ||
-        (item.projectTitle && item.projectTitle.toLowerCase().includes(search.toLowerCase())) ||
-        (item.autor && item.autor.toLowerCase().includes(search.toLowerCase()))
+      const s = search.toLowerCase();
+      data = data.filter((i) =>
+        [
+          i.material,
+          i.herramienta,
+          i.usuario,
+          i.actorNombre,
+          i.autor,
+          i.texto,
+          i.nota,
+          i.descripcion,
+          projectNames[i.projectId],
+        ]
+          .filter(Boolean)
+          .some((v) => v.toLowerCase().includes(s))
       );
     }
-    
-    return filtered;
-  };
 
-  const getCardStyle = (type) => {
-    const baseStyle = { backgroundColor: "#2C2C3A", padding: 12, borderRadius: 8, marginBottom: 12, borderLeftWidth: 6 };
-    
-    const colors = {
-      "inventario_movimientos": "#3182CE", 
-      "historial_herramientas": "#ECC94B",
-      "nota": "#9F7AEA"
-    };
-    
-    return { ...baseStyle, borderLeftColor: colors[type] || "#718096" };
-  };
+    return data.sort(
+      (a, b) =>
+        toDateSafe(resolveNoteDate(b) || b.fecha)?.getTime?.() -
+        toDateSafe(resolveNoteDate(a) || a.fecha)?.getTime?.()
+    );
+  }, [combinedHistory, activeTab, search, projectNames]);
 
-  const getTypeIcon = (type) => {
-    switch (type) {
-      case "inventario_movimientos": return "📦";
-      case "historial_herramientas": return "🔧";
-      case "nota": return "📝";
-      default: return "📄";
-    }
-  };
+  /* ======================================================
+   * RENDERS
+   * ====================================================== */
+  const renderHistoryItem = ({ item }) => {
+    const noteText =
+      item.contenido ||
+      item.texto ||
+      item.nota ||
+      item.descripcion ||
+      item.mensaje ||
+      item.detalle;
 
-  const formatDate = (date) => {
-    if (!date) return "Nunca";
-    const dateObj = date.toDate ? date.toDate() : new Date(date);
-    return dateObj.toLocaleString();
-  };
+    return (
+      <View style={getCardStyle(item.type)}>
+        <Text style={styles.date}>
+          {formatDate(resolveNoteDate(item) || item.fecha)}
+        </Text>
 
-  const renderHistoryItem = ({ item }) => (
-    <View style={getCardStyle(item.type)}>
-      <View style={styles.itemHeader}>
-        <Text style={styles.typeIcon}>{getTypeIcon(item.type)}</Text>
-        <Text style={styles.date}>{formatDate(item.fecha)}</Text>
+        {item.type === "nota" && (
+          <>
+            <Text style={styles.detail}>
+              📝 Nota – {projectNames[item.projectId] || "Proyecto"}
+            </Text>
+            {noteText && (
+              <Text style={styles.noteContent}>{noteText}</Text>
+            )}
+            {item.autor && (
+              <Text style={styles.subDetail}>👤 {item.autor}</Text>
+            )}
+          </>
+        )}
+
+        {item.type === "inventario_movimientos" && (
+          <>
+            <Text style={styles.detail}>
+              {item.tipo || item.accion || "Movimiento de inventario"}
+            </Text>
+            {item.material && (
+              <Text style={styles.subDetail}>📦 {item.material}</Text>
+            )}
+            {(item.usuario || item.actorNombre) && (
+              <Text style={styles.subDetail}>
+                👤 {item.usuario || item.actorNombre}
+              </Text>
+            )}
+          </>
+        )}
+
+        {item.type === "historial_herramientas" && (
+          <>
+            <Text style={styles.detail}>{item.accion}</Text>
+            {item.herramienta && (
+              <Text style={styles.subDetail}>🔧 {item.herramienta}</Text>
+            )}
+            {item.usuario && (
+              <Text style={styles.subDetail}>👤 {item.usuario}</Text>
+            )}
+          </>
+        )}
       </View>
-      
-      {item.type === "inventario_movimientos" && (
-        <>
-          <Text style={styles.detail}>{item.accion || "Movimiento de inventario"}</Text>
-          {item.material && <Text style={styles.subDetail}>📦 {item.material}</Text>}
-          {item.usuario && <Text style={styles.subDetail}>👤 {item.usuario}</Text>}
-          {item.cantidad && <Text style={styles.subDetail}>📊 Cantidad: {item.cantidad}</Text>}
-        </>
-      )}
-      
-      {item.type === "historial_herramientas" && (
-        <>
-          <Text style={styles.detail}>{item.accion}</Text>
-          {item.herramienta && <Text style={styles.subDetail}>🔧 {item.herramienta}</Text>}
-          {item.usuario && <Text style={styles.subDetail}>👤 {item.usuario}</Text>}
-        </>
-      )}
-      
-      {item.type === "nota" && (
-        <>
-          <Text style={styles.detail}>📝 Nota en: {item.projectTitle}</Text>
-          {item.contenido && <Text style={styles.subDetail}>💬 {item.contenido}</Text>}
-          {item.autor && <Text style={styles.subDetail}>👤 {item.autor}</Text>}
-          {item.tipo && <Text style={styles.subDetail}>🏷️ Tipo: {item.tipo}</Text>}
-        </>
-      )}
-    </View>
-  );
+    );
+  };
 
-  const renderLoginItem = ({ item }) => (
-    <View style={[styles.card, { borderLeftColor: item.lastLogin ? "#48BB78" : "#E53E3E" }]}>
-      <Text style={styles.detail}>👤 {item.email}</Text>
-      {item.nombre && <Text style={styles.subDetail}>Nombre: {item.nombre}</Text>}
-      <Text style={styles.subDetail}>Rol: {item.role}</Text>
-      <Text style={styles.subDetail}>
-        Último login: {item.lastLogin ? formatDate(item.lastLogin) : "Nunca"}
-      </Text>
-    </View>
-  );
+  const renderUserItem = ({ item }) => {
+    const isActive = !!item.lastLogin;
 
-  const filteredData = filterByTab(combinedHistory);
+    return (
+      <View
+        style={[
+          styles.userCard,
+          { borderLeftColor: isActive ? "#48BB78" : "#E53E3E" },
+        ]}
+      >
+        <View style={styles.userHeader}>
+          <Text style={styles.userEmail}>👤 {item.email}</Text>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>{item.role}</Text>
+          </View>
+        </View>
 
+        {item.nombre && (
+          <Text style={styles.userName}>🧾 {item.nombre}</Text>
+        )}
+
+        <Text style={styles.userMeta}>
+          🕒 Último login:{" "}
+          {item.lastLogin ? formatDate(item.lastLogin) : "Nunca"}
+        </Text>
+
+        {item.lastActivity && (
+          <Text style={styles.userMeta}>
+            ⚡ Última actividad: {formatDate(item.lastActivity)}
+          </Text>
+        )}
+      </View>
+    );
+  };
+
+  /* ======================================================
+   * UI
+   * ====================================================== */
   return (
     <LinearGradient colors={["#141E30", "#243B55"]} style={styles.container}>
       <Text style={styles.title}>📊 Panel de Administrador</Text>
-      <Text style={styles.subtitle}>Historial completo de actividades del sistema</Text>
+      <Text style={styles.subtitle}>
+        Historial completo de actividades del sistema
+      </Text>
 
-      {/* Barra de búsqueda */}
       <TextInput
         style={styles.searchBar}
         placeholder="Buscar en todo el historial..."
         placeholderTextColor="#AAA"
         value={search}
-        onChangeText={handleSearch}
+        onChangeText={setSearch}
       />
 
-      {/* Tabs de filtro */}
       <View style={styles.tabsContainer}>
-        {["all", "inventory", "equipment", "notes", "users"].map(tab => (
+        {["all", "inventory", "equipment", "notes", "users"].map((tab) => (
           <Text
             key={tab}
-            style={[
-              styles.tab,
-              activeTab === tab && styles.activeTab
-            ]}
+            style={[styles.tab, activeTab === tab && styles.activeTab]}
             onPress={() => setActiveTab(tab)}
           >
             {tab === "all" && "Todos"}
@@ -235,13 +358,11 @@ export default function AdminHistoryScreen() {
         ))}
       </View>
 
-      {/* Estadísticas */}
       <View style={styles.statsContainer}>
         <Text style={styles.statsText}>
-          📈 Estadísticas: 
-          Usuarios: {systemStats.usuarios || 0} | 
-          Inventario: {systemStats.inventario_movimientos || 0} | 
-          Herramientas: {systemStats.historial_herramientas || 0}
+          📈 Usuarios: {systemStats.usuarios || 0} | Inventario:{" "}
+          {systemStats.inventario_movimientos || 0} | Herramientas:{" "}
+          {systemStats.historial_herramientas || 0}
         </Text>
       </View>
 
@@ -249,7 +370,7 @@ export default function AdminHistoryScreen() {
         <FlatList
           data={lastLogins}
           keyExtractor={(item) => item.uid}
-          renderItem={renderLoginItem}
+          renderItem={renderUserItem}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -258,7 +379,7 @@ export default function AdminHistoryScreen() {
             />
           }
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No hay usuarios registrados.</Text>
+            <Text style={styles.emptyText}>No hay usuarios.</Text>
           }
         />
       ) : (
@@ -274,15 +395,30 @@ export default function AdminHistoryScreen() {
             />
           }
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              {search ? "No se encontraron registros para la búsqueda." : "No hay registros recientes."}
-            </Text>
+            <Text style={styles.emptyText}>No hay registros.</Text>
           }
         />
       )}
     </LinearGradient>
   );
 }
+
+/* ======================================================
+ * STYLES
+ * ====================================================== */
+const getCardStyle = (type) => ({
+  backgroundColor: "#2C2C3A",
+  padding: 12,
+  borderRadius: 10,
+  marginBottom: 12,
+  borderLeftWidth: 6,
+  borderLeftColor:
+    type === "nota"
+      ? "#9F7AEA"
+      : type === "inventario_movimientos"
+      ? "#3182CE"
+      : "#ECC94B",
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
@@ -341,43 +477,79 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 12,
   },
-  card: {
-    backgroundColor: "#2C2C3A",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderLeftWidth: 6,
+  date: {
+    color: "#A0AEC0",
+    fontSize: 12,
+    marginBottom: 6,
   },
-  itemHeader: {
+  detail: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  subDetail: {
+    color: "#ddd",
+    marginTop: 2,
+    fontSize: 14,
+  },
+  noteContent: {
+    color: "#E2E8F0",
+    fontSize: 15,
+    marginTop: 6,
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  emptyText: {
+    color: "#FFF",
+    textAlign: "center",
+    marginTop: 20,
+    fontSize: 16,
+  },
+
+  /* USERS */
+  userCard: {
+    backgroundColor: "#1F2933",
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 14,
+    borderLeftWidth: 6,
+    elevation: 3,
+  },
+  userHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
   },
-  typeIcon: {
+  userEmail: {
+    color: "#F7FAFC",
     fontSize: 16,
-  },
-  date: { 
-    color: "#aaa", 
-    fontSize: 12 
-  },
-  detail: { 
-    color: "#fff", 
-    fontSize: 16, 
     fontWeight: "bold",
-    marginBottom: 4 
+    flex: 1,
+    marginRight: 8,
   },
-  subDetail: { 
-    color: "#ddd", 
-    marginTop: 2,
-    fontSize: 14
+  userName: {
+    color: "#CBD5E0",
+    fontSize: 14,
+    marginTop: 4,
   },
-  emptyText: { 
-    color: "#FFF", 
-    textAlign: "center", 
-    marginTop: 20,
-    fontSize: 16
+  userMeta: {
+    color: "#A0AEC0",
+    fontSize: 13,
+    marginTop: 4,
   },
+  roleBadge: {
+    backgroundColor: "#4C51BF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  roleText: {
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+
   errorText: {
     color: "#FFF",
     fontSize: 18,

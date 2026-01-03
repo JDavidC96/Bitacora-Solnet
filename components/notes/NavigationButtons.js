@@ -1,9 +1,11 @@
-// components/notes/NavigationButtons.js
+// components/notes/NavigationButtons.js - ACTUALIZAR COMPLETO
 import { useRouter } from 'expo-router';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useUser } from '../../context/UserContext';
 
 export default function NavigationButtons({ projectId, projectTitle }) {
   const router = useRouter();
+  const { role } = useUser();
 
   const buttons = [
     {
@@ -21,10 +23,21 @@ export default function NavigationButtons({ projectId, projectTitle }) {
       path: '/ProjectStockScreen',
       color: '#48BB78'
     },
-   
+    {
+      title: '💰 Presupuesto',
+      path: '/BudgetScreen',
+      color: '#9F7AEA',
+      roles: ['Administrador', 'Ingeniero', 'Supervisor']
+    },
   ];
 
   const handleNavigation = (button) => {
+    // Validar permisos para botones restringidos
+    if (button.roles && !button.roles.includes(role)) {
+      Alert.alert('Acceso restringido', 'No tienes permisos para acceder a esta función');
+      return;
+    }
+
     // Validar que tenemos el projectId
     if (!projectId) {
       Alert.alert('Error', 'No se pudo identificar el proyecto. Por favor, regresa y vuelve a entrar.');
@@ -34,32 +47,34 @@ export default function NavigationButtons({ projectId, projectTitle }) {
 
     // Parámetros base para todas las pantallas
     const baseParams = { 
-      id: projectId, 
+      projectId: projectId, // Cambiar a projectId para consistencia
       title: projectTitle || 'Proyecto'
     };
 
-    // Para ProjectStockScreen, agregar projectId como parámetro adicional
-    const finalParams = button.path === '/ProjectStockScreen' 
-      ? { ...baseParams, projectId: projectId }
-      : baseParams;
-
     router.push({
       pathname: button.path,
-      params: finalParams,
+      params: baseParams,
     });
   };
 
   return (
     <View style={styles.container}>
-      {buttons.map((button, index) => (
-        <TouchableOpacity
-          key={index}
-          style={[styles.button, { backgroundColor: button.color }]}
-          onPress={() => handleNavigation(button)}
-        >
-          <Text style={styles.buttonText}>{button.title}</Text>
-        </TouchableOpacity>
-      ))}
+      {buttons.map((button, index) => {
+        // Ocultar botones que requieren roles específicos
+        if (button.roles && !button.roles.includes(role)) {
+          return null;
+        }
+        
+        return (
+          <TouchableOpacity
+            key={index}
+            style={[styles.button, { backgroundColor: button.color }]}
+            onPress={() => handleNavigation(button)}
+          >
+            <Text style={styles.buttonText}>{button.title}</Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }

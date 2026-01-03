@@ -1,31 +1,48 @@
 // components/personal/PersonalHeader.js
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-export default function PersonalHeader({ 
-  role, 
-  showForm, 
-  onToggleForm, 
-  onNavigateHistory 
+export default function PersonalHeader({
+  role,
+  showForm,
+  onToggleForm,
+  onOpenRegistroLaboral,
+  onOpenReporteGeneral,
 }) {
   const isAdmin = role === "Administrador";
+  const isAdministrativo = role === "Administrativo";
+  const canSeeRegistro = isAdmin || isAdministrativo;
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Gestión de Personal</Text>
 
-      {isAdmin && (
-        <TouchableOpacity
-          style={[
-            styles.button,
-            { backgroundColor: showForm ? "#E53E3E" : "#38B2AC" },
-          ]}
-          onPress={onToggleForm}
-        >
-          <Text style={styles.buttonText}>
-            {showForm ? "❌ Cancelar" : "➕ Crear Persona"}
-          </Text>
-        </TouchableOpacity>
-      )}
+      <View style={styles.buttonsRow}>
+        {isAdmin && (
+          <TouchableOpacity style={styles.buttonPrimary} onPress={onToggleForm}>
+            <Text style={styles.buttonText}>
+              {showForm ? "Cerrar formulario" : "Agregar personal"}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {canSeeRegistro && (
+          <>
+            <TouchableOpacity
+              style={styles.buttonSecondary}
+              onPress={onOpenRegistroLaboral}
+            >
+              <Text style={styles.buttonTextSecondary}>Registro laboral</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.buttonSecondary}
+              onPress={onOpenReporteGeneral}
+            >
+              <Text style={styles.buttonTextSecondary}>Reporte general</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     </View>
   );
 }
@@ -36,21 +53,43 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 22,
-    color: "#FFF",
+    fontWeight: "700",
+    color: "#FFFFFF",
     marginBottom: 12,
-    fontWeight: "bold",
     textAlign: "center",
   },
-  button: {
+  buttonsRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  buttonPrimary: {
     backgroundColor: "#38B2AC",
-    padding: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: "center",
-    marginBottom: 20,
+    marginHorizontal: 4,
   },
-  buttonText: { 
-    color: "#FFF", 
-    fontSize: 16, 
-    fontWeight: "bold" 
+  buttonSecondary: {
+    backgroundColor: "#1F2933",
+    borderWidth: 1,
+    borderColor: "#38B2AC",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    marginHorizontal: 4,
+  },
+  buttonText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  buttonTextSecondary: {
+    color: "#E6FFFA",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

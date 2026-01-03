@@ -1,68 +1,134 @@
 // screens/CompletedProjectsScreen.js
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import {
-    ActivityIndicator,
-    FlatList,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import FABMenu from '../components/shared/FABMenu';
+import { useUser } from '../context/UserContext';
 import { useCompletedProjects } from '../hooks/useCompletedProjects';
+import { usePersonal } from '../hooks/usePersonal';
+import personalService from '../services/personalService';
 
 export default function CompletedProjectsScreen() {
   const router = useRouter();
-  const { completedProjects, loading, error } = useCompletedProjects();
+  const { role } = useUser();
 
-  const handleProjectPress = (project) => {
-    // Usar NoteScreen existente en modo solo lectura
-    router.push({
-      pathname: '/NoteScreen',
-      params: { 
-        id: project.id,
-        title: project.title,
-        readOnly: 'true',  // Para deshabilitar escritura
-        isCompleted: 'true'
-      }
-    });
+  const { completedProjects, loading, error } = useCompletedProjects();
+  const { personal } = usePersonal();
+
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [assignVisible, setAssignVisible] = useState(false);
+
+  const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+
+  const handleAssign = (project) => {
+    setSelectedProject(project);
+    setAssignVisible(true);
   };
 
-  // Componente de tarjeta de proyecto simplificado
-  const ProjectCard = ({ project, onPress }) => (
-    <TouchableOpacity 
-      style={styles.projectCard}
-      onPress={onPress}
-    >
-      <View style={styles.cardHeader}>
-        <Text style={styles.projectTitle}>{project.title}</Text>
-        <View style={styles.completedBadge}>
-          <Text style={styles.completedBadgeText}>✅ COMPLETADO</Text>
+  const handleLiberar = async (persona) => {
+  if (!persona) return;
+
+  try {
+    await personalService.liberar(persona.id);
+    alert(`${persona.nombre} ha sido liberado del proyecto`);
+  } catch (err) {
+    alert('Error liberando personal');
+    console.log(err);
+  }
+};
+
+
+  const ProjectCardCompleted = ({ project }) => {
+    const asignados = personal.filter(p => p.proyectoAsignado === project.title);
+
+    return (
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() =>
+          router.push({
+            pathname: '/NoteScreen',
+            params: { 
+              id: project.id,
+              title: project.title,
+              readOnly: 'true',
+              isCompleted: 'true'
+            }
+          })
+        }
+      >
+        {/* Header */}
+        <View style={styles.rowBetween}>
+          <Text style={styles.cardTitle}>{project.title}</Text>
+
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>✔ Completado</Text>
+          </View>
         </View>
-      </View>
-      
-      <Text style={styles.projectLocation}>{project.ubicacion}</Text>
-      
-      {project.completedAt && (
-        <Text style={styles.completedDate}>
-          Completado: {new Date(project.completedAt).toLocaleDateString('es-ES')}
-        </Text>
-      )}
-      
-      <View style={styles.progressContainer}>
+
+        {/* Ubicación */}
+        {project.ubicacion ? (
+          <Text style={styles.location}>📍 {project.ubicacion}</Text>
+        ) : (
+          <Text style={styles.locationMuted}>📍 (Sin ubicación)</Text>
+        )}
+
+        {/* Fecha de finalización */}
+        {project.completedAt && (
+          <Text style={styles.completedDate}>
+            Finalizado: {new Date(project.completedAt).toLocaleDateString()}
+          </Text>
+        )}
+
+        {/* Progreso */}
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: '100%' }]} />
+          <View style={styles.progressFill} />
         </View>
         <Text style={styles.progressText}>100% Completado</Text>
-      </View>
-    </TouchableOpacity>
-  );
+
+        {/* Personal asignado */}
+        <View style={styles.personalContainer}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.personalTitle}>👥 Personal asignado</Text>
+
+            {canManage && (
+              <TouchableOpacity onPress={() => handleAssign(project)}>
+                <Text style={styles.assignButton}>Asignar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {asignados.length > 0 ? (
+            asignados.map(p => (
+              <View key={p.id} style={styles.personItem}>
+                <View>
+                  <Text style={styles.personName}>{p.nombre}</Text>
+                  <Text style={styles.personRole}>{p.cargo}</Text>
+                </View>
+
+                {canManage && (
+                  <TouchableOpacity 
+                    style={styles.liberarBtn}
+                    onPress={() => handleLiberar(p)}
+                  >
+                    <Text style={styles.liberarText}>Liberar</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noPersonal}>Sin personal asignado</Text>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+        <ActivityIndicator size="large" color="#FF7A00" />
         <Text style={styles.loadingText}>Cargando proyectos completados...</Text>
       </View>
     );
@@ -70,215 +136,247 @@ export default function CompletedProjectsScreen() {
 
   if (error) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Error cargando proyectos</Text>
-        <Text style={styles.errorSubtext}>{error.message}</Text>
-        <TouchableOpacity 
-          style={styles.retryButton}
-          onPress={() => window.location.reload()}
-        >
-          <Text style={styles.retryButtonText}>Reintentar</Text>
-        </TouchableOpacity>
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Error cargando proyectos</Text>
       </View>
     );
   }
 
   return (
-    <LinearGradient colors={['#4CAF50', '#2E7D32']} style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>✅ Proyectos Completados</Text>
-        <Text style={styles.subtitle}>
-          {completedProjects.length} proyecto{completedProjects.length !== 1 ? 's' : ''} finalizado{completedProjects.length !== 1 ? 's' : ''}
-        </Text>
-      </View>
+    <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
 
-      <FlatList
-        data={completedProjects}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ProjectCard 
-            project={item}
-            onPress={() => handleProjectPress(item)}
-          />
-        )}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No hay proyectos completados</Text>
-            <Text style={styles.emptySubtext}>
-              Los proyectos se moverán aquí cuando estén al 100%
+        {/* Fondo con imagen suave */}
+        <Image
+          source={require('../assets/images/terrall.png')}
+          style={styles.bgImage}
+          resizeMode="contain"
+        />
+
+        <View style={styles.container}>
+
+          {/* Header similar a Home */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Proyectos Completados</Text>
+            <Text style={styles.subtitle}>
+              {completedProjects.length} proyecto
+              {completedProjects.length !== 1 ? 's' : ''} finalizado
+              {completedProjects.length !== 1 ? 's' : ''}
             </Text>
           </View>
-        }
-      />
 
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => router.back()}
-      >
-        <Text style={styles.backButtonText}>← Volver a Proyectos Activos</Text>
-      </TouchableOpacity>
+          {/* Lista */}
+          <FlatList
+            data={completedProjects}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ProjectCardCompleted project={item} />
+            )}
+            contentContainerStyle={{ paddingBottom: 100 }}
+          />
+
+          {/* FAB MENU */}
+          <FABMenu
+            showHome={true}
+            showSearch={true}  
+            onHome={() => router.push('/HomeScreen')}
+            onSearch={() => console.log("Buscar completados")}
+            onCompleted={() => router.back()}  // abrir activos
+          />
+
+          {/* MODAL ASIGNAR */}
+          onAssign={(id) => {
+  setAssignVisible(false);
+
+  const persona = personal.find(p => p.id === id);
+  if (!persona) return;
+
+  personalService.assignToProject(persona.id, selectedProject.id);
+}}
+
+        </View>
+      </View>
     </LinearGradient>
   );
 }
 
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
+    paddingTop: 40,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: 'rgba(255, 248, 242, 0.85)',
   },
+
   header: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    alignItems: 'center',
+    marginBottom: 16,
   },
+
   title: {
     fontSize: 24,
-    color: '#FFF',
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontWeight: '800',
+    color: '#111827',
   },
+
   subtitle: {
-    fontSize: 16,
-    color: '#E8F5E8',
+    marginTop: 4,
+    color: '#6B7280',
+    fontSize: 13,
   },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 80,
-  },
-  projectCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
+
+  card: {
+    backgroundColor: '#111827ee',
     padding: 16,
+    borderRadius: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(148,163,184,0.32)',
   },
-  cardHeader: {
+
+  rowBetween: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
+    alignItems: 'center',
   },
-  projectTitle: {
+
+  cardTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFF',
-    flex: 1,
-    marginRight: 8,
+    fontWeight: '700',
+    color: '#F9FAFB',
   },
-  completedBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 8,
+
+  badge: {
     paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: 'rgba(34,197,94,0.2)',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#22C55E',
   },
-  completedBadgeText: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  projectLocation: {
-    color: '#E8F5E8',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  completedDate: {
-    color: '#C8E6C9',
+
+  badgeText: {
+    color: '#22C55E',
     fontSize: 12,
-    marginBottom: 12,
+    fontWeight: '700',
   },
-  progressContainer: {
-    marginTop: 8,
+
+  location: {
+    color: '#93C5FD',
+    fontSize: 13,
+    marginTop: 4,
   },
+
+  locationMuted: {
+    color: '#6B7280',
+    fontSize: 13,
+    marginTop: 4,
+  },
+
+  completedDate: {
+    marginTop: 6,
+    color: '#9CA3AF',
+    fontSize: 12,
+  },
+
   progressBar: {
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 3,
+    height: 8,
+    backgroundColor: '#1F2937',
+    borderRadius: 999,
+    marginTop: 10,
     overflow: 'hidden',
-    marginBottom: 4,
   },
+
   progressFill: {
     height: '100%',
-    backgroundColor: '#FFF',
-    borderRadius: 3,
+    width: '100%',
+    backgroundColor: '#22C55E',
   },
+
   progressText: {
-    color: '#FFF',
+    color: '#E5E7EB',
     fontSize: 12,
+    marginTop: 4,
+  },
+
+  personalContainer: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#374151',
+    paddingTop: 10,
+  },
+
+  personalTitle: {
+    color: '#F9FAFB',
+    fontSize: 14,
     fontWeight: '600',
   },
+
+  assignButton: {
+    color: '#3B82F6',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  personItem: {
+    marginTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  personName: {
+    color: '#F3F4F6',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  personRole: {
+    color: '#9CA3AF',
+    fontSize: 12,
+  },
+
+  liberarBtn: {
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+
+  liberarText: {
+    color: '#F87171',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+
+  noPersonal: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1E1E2F',
   },
+
   loadingText: {
-    color: '#FFF',
     marginTop: 12,
-    fontSize: 16,
+    color: '#4B5563',
   },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1E1E2F',
-    padding: 20,
-  },
-  errorText: {
-    color: '#F56565',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  errorSubtext: {
-    color: '#CCC',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  retryButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFF',
-    fontWeight: 'bold',
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
-  },
-  emptyText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptySubtext: {
-    color: '#E8F5E8',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  backButton: {
+
+  bgImage: {
     position: 'absolute',
-    bottom: 30,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  backButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
+    width: 260,
+    height: 130,
+    bottom: 40,
+    left: '50%',
+    marginLeft: -130,
+    opacity: 0.22,
   },
 });

@@ -16,7 +16,7 @@ export const adminHistoryService = {
         return {
           uid: doc.id,
           email: userData.email,
-          role: userData.rol,
+          role: userData.rol || 'usuario',
           lastLogin: userData.ultimoLogin || null,
           nombre: userData.nombre || 'Sin nombre'
         };

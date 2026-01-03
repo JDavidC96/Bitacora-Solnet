@@ -24,7 +24,9 @@ export default function ProjectList({
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyText}>No hay proyectos creados</Text>
         <Text style={styles.emptySubtext}>
-          {canManage ? 'Presiona el botón + para crear tu primer proyecto' : 'Contacta al administrador'}
+          {canManage
+            ? 'Presiona el botón ＋ para crear tu primer proyecto'
+            : 'Contacta al administrador para crear nuevos proyectos'}
         </Text>
       </View>
     );
@@ -42,19 +44,14 @@ export default function ProjectList({
   );
 
   const keyExtractor = (item, index) => {
-    // Prioridad 1: idDoc
     if (item.idDoc) return item.idDoc;
-    // Prioridad 2: id
     if (item.id) return item.id;
-    // Prioridad 3: título + índice (como fallback)
     if (item.title) return `${item.title}-${index}`;
-    // Último recurso: índice
     return `project-${index}`;
   };
 
   return (
     <View style={styles.container}>
-     
       <FlatList
         data={projects}
         keyExtractor={keyExtractor}
@@ -73,42 +70,32 @@ const styles = StyleSheet.create({
   list: {
     paddingBottom: 120,
   },
-  resultsHeader: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 12,
-    alignItems: 'center',
-  },
-  resultsText: {
-    color: '#000000',
-    fontSize: 14,
-    fontWeight: '500',
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 50,
+    paddingVertical: 40,
   },
   loadingText: {
-    color: '#000000',
-    fontSize: 16,
+    color: '#4B5563',
+    fontSize: 15,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 50,
+    paddingHorizontal: 24,
   },
   emptyText: {
-    color: '#000000',
+    color: '#111827',
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '700',
     marginBottom: 8,
+    textAlign: 'center',
   },
   emptySubtext: {
-    color: '#666666',
+    color: '#6B7280',
     fontSize: 14,
     textAlign: 'center',
   },

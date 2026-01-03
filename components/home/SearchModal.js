@@ -6,15 +6,14 @@ import ModalBase from '../ModalBase';
 export default function SearchModal({ 
   visible, 
   onClose, 
-  projects, // Recibir todos los proyectos
-  personal, // Recibir el personal para mostrar en las tarjetas
-  onProjectPress, // Para navegar al proyecto
-  onProjectLongPress // Para acciones del proyecto
+  projects,
+  personal, // (no se usa por ahora, lo dejo por compatibilidad)
+  onProjectPress,
+  onProjectLongPress
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredProjects, setFilteredProjects] = useState([]);
 
-  // Filtrar proyectos cuando cambia la búsqueda
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredProjects([]);
@@ -56,15 +55,23 @@ export default function SearchModal({
     </TouchableOpacity>
   );
 
-  // Contenido principal del modal
-  const modalContent = (
-    <>
-      {/* Campo de búsqueda */}
+  const resultsLabel = () => {
+    if (!searchQuery) return 'Escribe para buscar proyectos por nombre';
+    if (filteredProjects.length === 0) return 'No se encontraron proyectos';
+    return `${filteredProjects.length} proyecto${filteredProjects.length !== 1 ? 's' : ''} encontrado${filteredProjects.length !== 1 ? 's' : ''}`;
+  };
+
+  return (
+    <ModalBase
+      visible={visible}
+      title="Buscar proyectos"
+      onClose={onClose}
+    >
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Escribe el nombre del proyecto..."
-          placeholderTextColor="#AAA"
+          placeholder="Nombre del proyecto..."
+          placeholderTextColor="#9CA3AF"
           value={searchQuery}
           onChangeText={setSearchQuery}
           autoCapitalize="none"
@@ -78,55 +85,37 @@ export default function SearchModal({
         )}
       </View>
 
-      {/* Información de resultados */}
       <View style={styles.resultsInfo}>
         <Text style={styles.resultsText}>
-          {searchQuery ? (
-            filteredProjects.length === 0 ? 
-              'No se encontraron proyectos' : 
-              `${filteredProjects.length} proyecto${filteredProjects.length !== 1 ? 's' : ''} encontrado${filteredProjects.length !== 1 ? 's' : ''}`
-          ) : (
-            'Escribe para buscar proyectos'
-          )}
+          {resultsLabel()}
         </Text>
       </View>
 
-      {/* Lista de resultados */}
       {filteredProjects.length > 0 ? (
         <View style={styles.resultsContainer}>
           <FlatList
             data={filteredProjects}
-            keyExtractor={(item) => item.idDoc || item.id || `project-${item.title}`}
+            keyExtractor={(item, index) => item.idDoc || item.id || `project-${item.title}-${index}`}
             renderItem={renderProjectItem}
             style={styles.resultsList}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listContent}
           />
         </View>
-      ) : searchQuery ? (
-        /* Mensaje cuando no hay resultados */
-        <View style={styles.noResults}>
-          <Text style={styles.noResultsText}>No hay proyectos que coincidan con "{searchQuery}"</Text>
-          <Text style={styles.noResultsHint}>Intenta con otras palabras</Text>
-        </View>
-      ) : (
-        /* Mensaje cuando no se ha buscado nada */
+      ) : !searchQuery ? (
         <View style={styles.initialState}>
-          <Text style={styles.initialStateText}>🔍</Text>
+          <Text style={styles.initialStateIcon}>🔍</Text>
           <Text style={styles.initialStateText}>Busca proyectos por nombre</Text>
           <Text style={styles.initialStateSubtext}>Los resultados aparecerán aquí</Text>
         </View>
+      ) : (
+        <View style={styles.noResults}>
+          <Text style={styles.noResultsText}>
+            No hay proyectos que coincidan con "{searchQuery}"
+          </Text>
+          <Text style={styles.noResultsHint}>Prueba con otro término o revisa la ortografía</Text>
+        </View>
       )}
-    </>
-  );
-
-  return (
-    <ModalBase
-      visible={visible}
-      title="Buscar Proyectos"
-      onClose={onClose}
-    >
-      {modalContent}
     </ModalBase>
   );
 }
@@ -135,22 +124,24 @@ const styles = {
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   input: {
     flex: 1,
-    backgroundColor: '#3A3A4A',
-    color: '#FFF',
-    padding: 12,
-    borderRadius: 8,
-    fontSize: 16,
+    backgroundColor: '#111827',
+    color: '#F9FAFB',
+    padding: 10,
+    borderRadius: 10,
+    fontSize: 14,
     marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#374151',
   },
   clearButton: {
-    backgroundColor: '#718096',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    backgroundColor: '#4B5563',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -160,15 +151,17 @@ const styles = {
     fontWeight: 'bold',
   },
   resultsInfo: {
-    backgroundColor: '#2D3748',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
+    backgroundColor: '#111827',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 12,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#374151',
   },
   resultsText: {
-    color: '#E2E8F0',
-    fontSize: 14,
+    color: '#E5E7EB',
+    fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
   },
@@ -181,62 +174,66 @@ const styles = {
     flex: 1,
   },
   listContent: {
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   projectItem: {
-    backgroundColor: '#3A3A4A',
-    padding: 16,
-    borderRadius: 8,
+    backgroundColor: '#111827',
+    padding: 12,
+    borderRadius: 10,
     marginBottom: 8,
     borderLeftWidth: 4,
-    borderLeftColor: '#3182CE',
+    borderLeftColor: '#2563EB',
   },
   projectName: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
+    color: '#F9FAFB',
+    fontSize: 15,
+    fontWeight: '600',
     marginBottom: 4,
   },
   projectLocation: {
-    color: '#90CDF4',
-    fontSize: 14,
+    color: '#93C5FD',
+    fontSize: 13,
     marginBottom: 4,
   },
   projectProgress: {
-    color: '#AAA',
+    color: '#9CA3AF',
     fontSize: 12,
   },
   noResults: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 32,
     paddingHorizontal: 20,
   },
   noResultsText: {
-    color: '#FFF',
-    fontSize: 16,
+    color: '#F9FAFB',
+    fontSize: 15,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   noResultsHint: {
-    color: '#AAA',
-    fontSize: 14,
+    color: '#9CA3AF',
+    fontSize: 13,
     textAlign: 'center',
     fontStyle: 'italic',
   },
   initialState: {
     alignItems: 'center',
-    paddingVertical: 50,
+    paddingVertical: 36,
     paddingHorizontal: 20,
   },
-  initialStateText: {
-    color: '#FFF',
-    fontSize: 18,
-    textAlign: 'center',
+  initialStateIcon: {
+    fontSize: 24,
     marginBottom: 8,
   },
+  initialStateText: {
+    color: '#F9FAFB',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
   initialStateSubtext: {
-    color: '#AAA',
-    fontSize: 14,
+    color: '#9CA3AF',
+    fontSize: 13,
     textAlign: 'center',
   },
 };

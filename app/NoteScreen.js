@@ -1,105 +1,121 @@
 // screens/NoteScreen.js
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
+  ScrollView,
   StyleSheet,
   Text,
-  View
-} from 'react-native';
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-// Hooks personalizados
-import { useUser } from '../context/UserContext';
-import { useNotes } from '../hooks/useNotes';
-import { useNotifications } from '../hooks/useNotifications';
+// Hooks
+import { useUser } from "../context/UserContext";
+import { useNotes } from "../hooks/useNotes";
+import { useNotifications } from "../hooks/useNotifications";
 
-// Componentes
-import EditNoteModal from '../components/notes/EditNoteModal';
-import ImageUploader from '../components/notes/ImageUploader';
-import NavigationButtons from '../components/notes/NavigationButtons';
-import NoteEditor from '../components/notes/NoteEditor';
-import NotesHistory from '../components/notes/NotesHistory';
+// Components
+import EditNoteModal from "../components/notes/EditNoteModal";
+import ImageUploader from "../components/notes/ImageUploader";
+import NoteEditor from "../components/notes/NoteEditor";
+import NotesHistory from "../components/notes/NotesHistory";
 
-// Servicios
-import { noteService } from '../services/noteService';
+// Services
+import { noteService } from "../services/noteService";
+
+/* Tarjeta de acción rápida */
+function DashboardCard({ icon, title, subtitle, colors, onPress }) {
+  return (
+    <TouchableOpacity style={styles.cardWrapper} onPress={onPress}>
+      <LinearGradient colors={colors} style={styles.cardGradient}>
+        <View style={styles.iconCircle}>
+          <Text style={styles.iconText}>{icon}</Text>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.cardSubtitle}>{subtitle}</Text>
+        </View>
+
+        <Text style={styles.arrow}>›</Text>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
+}
 
 export default function NoteScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const { role, user } = useUser();
 
-  // Procesar parámetros una sola vez con useMemo
-  const processedParams = useMemo(() => {
-    // Procesar parámetros (pueden venir como arrays)
-    const id = Array.isArray(params.id) ? params.id[0] : params.id;
-    const title = Array.isArray(params.title) ? params.title[0] : params.title;
-    
+  // Procesar parámetros
+  const { id, title } = useMemo(() => {
     return {
-      id: id && id !== 'undefined' ? id : null,
-      title: title || 'Proyecto sin nombre'
+      id:
+        Array.isArray(params.id) && params.id[0] !== "undefined"
+          ? params.id[0]
+          : params.id !== "undefined"
+          ? params.id
+          : null,
+      title: Array.isArray(params.title) ? params.title[0] : params.title,
     };
-  }, [params.id, params.title]); // Solo dependemos de estos valores específicos
+  }, [params.id, params.title]);
 
-  // Estados
-  const [noteText, setNoteText] = useState('');
+  // States
+  const [noteText, setNoteText] = useState("");
   const [selectedImages, setSelectedImages] = useState([]);
   const [editModal, setEditModal] = useState(false);
-  const [editText, setEditText] = useState('');
+  const [editText, setEditText] = useState("");
   const [editId, setEditId] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Hooks personalizados - usar processedParams.id directamente
-  const { notes, loading: notesLoading } = useNotes(processedParams.id);
+  // Hooks
+  const { notes, loading: notesLoading } = useNotes(id);
   useNotifications();
 
   // Permisos
   const canWrite = ["Administrador", "Ingeniero", "Supervisor", "Tecnico"].includes(role);
+  const canAccessBudget = ["Administrador", "Administrativo", "Ingeniero"].includes(role);
+  const canAddViaticos = ["Administrador", "Administrativo", "Ingeniero", "Supervisor"].includes(role);
 
-  // Handlers
+  // ────────────────────────────────────────────
+  // GUARDAR NOTA
+  // ────────────────────────────────────────────
   const handleSaveNote = async () => {
-    if (!noteText.trim()) {
-      Alert.alert('Error', 'Debes escribir un texto antes de guardar.');
-      return;
-    }
-
-    if (!processedParams.id) {
-      Alert.alert('Error', 'No se pudo identificar el proyecto.');
-      return;
-    }
+    if (!noteText.trim()) return Alert.alert("Error", "Escribe una nota.");
 
     setLoading(true);
     try {
-      await noteService.createNote(processedParams.id, {
+      await noteService.createNote(id, {
         text: noteText.trim(),
-        author: user?.displayName || user?.email || "Usuario desconocido",
-        images: selectedImages
+        author: user?.displayName || user?.email,
+        images: selectedImages,
       });
 
-      Alert.alert('✅ Éxito', 'Entrada guardada correctamente');
-      
-      // Limpiar formulario
-      setNoteText('');
+      setNoteText("");
       setSelectedImages([]);
-    } catch (error) {
-      console.error('Error guardando nota:', error);
-      Alert.alert('❌ Error', 'No se pudo guardar la nota');
-    } finally {
-      setLoading(false);
+    } catch (err) {
+      Alert.alert("Error", "No se pudo guardar la nota.");
     }
+    setLoading(false);
   };
 
-  const handleEditNote = async (entry, index) => {
-    // Solo permitir editar la última nota dentro de los primeros 5 minutos
+  // ────────────────────────────────────────────
+  // EDITAR NOTA
+  // ────────────────────────────────────────────
+  const handleEditNote = (entry, index) => {
+    // Solo última nota (5 minutos)
     if (index !== 0) return;
 
-    const now = Date.now();
-    const limite = 5 * 60 * 1000; // 5 minutos
-    if (!entry.timestamp || now - entry.timestamp > limite) {
-      Alert.alert("Info", "Solo puedes editar la última nota dentro de los primeros 5 minutos.");
-      return;
+    const limite = 5 * 60 * 1000;
+    if (!entry.timestamp || Date.now() - entry.timestamp > limite) {
+      return Alert.alert(
+        "Info",
+        "Solo puedes editar la última nota y dentro de los 5 minutos."
+      );
     }
 
     setEditText(entry.texto);
@@ -108,156 +124,246 @@ export default function NoteScreen() {
   };
 
   const handleUpdateNote = async () => {
-    if (!editId || !processedParams.id) return;
-    
+    if (!editId) return;
+
     try {
-      await noteService.updateNote(processedParams.id, editId, editText);
+      await noteService.updateNote(id, editId, editText);
       setEditModal(false);
-      setEditId(null);
-      Alert.alert('✅ Éxito', 'Nota actualizada correctamente');
-    } catch (error) {
-      console.error("Error actualizando nota:", error);
-      Alert.alert('❌ Error', 'No se pudo actualizar la nota');
+    } catch (err) {
+      Alert.alert("Error", "No se pudo actualizar la nota.");
     }
   };
 
-  const handleAddImages = (newImages) => {
-    setSelectedImages(prev => [...prev, ...newImages]);
+  // ────────────────────────────────────────────
+  // CARGA DE IMÁGENES (Drive o lo que uses)
+  // ────────────────────────────────────────────
+  const handleAddImages = (imgs) => {
+    setSelectedImages((prev) => [...prev, ...imgs]);
   };
 
-  // Mostrar loading si no hay ID válido
-  if (!processedParams.id) {
+  // ────────────────────────────────────────────
+  // RENDER
+  // ────────────────────────────────────────────
+  if (!id) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={styles.center}>
         <ActivityIndicator size="large" color="#FFF" />
         <Text style={styles.loadingText}>Cargando proyecto...</Text>
-        <Text style={styles.errorText}>Error: No se pudo cargar el proyecto</Text>
-        <Text style={styles.debugText}>Parámetros recibidos: {JSON.stringify(params)}</Text>
       </View>
     );
   }
 
   return (
-    <LinearGradient colors={["#232526", "#414345"]} style={styles.container}>
-      <Text style={styles.title}>Bitácora para {processedParams.title}</Text>
+    <LinearGradient colors={["#1A365D", "#2C5282"]} style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scroll}>
 
-      {canWrite ? (
-        <NoteEditor
-          noteText={noteText}
-          onNoteChange={setNoteText}
-          selectedImages={selectedImages}
-          onSave={handleSaveNote}
-          loading={loading}
-        />
-      ) : (
-        <View style={styles.readOnlyMessage}>
-          <Text style={styles.readOnlyText}>
-            ⚠️ Solo lectura: No tienes permisos para escribir en esta bitácora
-          </Text>
+        {/* HEADER */}
+        <View style={styles.headerCard}>
+          <Text style={styles.headerTitle}>{title}</Text>
+          <Text style={styles.headerSubtitle}>Bitácora del Proyecto</Text>
         </View>
-      )}
 
-      {canWrite && (
-        <ImageUploader
-          onImagesSelected={handleAddImages}
-          selectedImages={selectedImages}
-          onClearImages={() => setSelectedImages([])}
+        {/* ACCIONES RÁPIDAS */}
+        <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
+
+        {/* Cronograma */}
+        <DashboardCard
+          icon="⚙️"
+          title="Cronograma"
+          subtitle="Avances, pasos y actividades"
+          colors={["#48BB78", "#38A169"]}
+          onPress={() =>
+            router.push({
+              pathname: "/ProjectStepScreen",
+              params: { id, title },
+            })
+          }
         />
-      )}
+        {/* Presupuesto vs Real */}
+        {canAccessBudget && (
+        <DashboardCard
+  icon="📊"
+  title="Comparativo Presupuesto vs Real"
+  subtitle="Análisis financiero detallado"
+  colors={["#805AD5", "#6B46C1"]}
+  onPress={() =>
+    router.push({
+      pathname: "/BudgetVsRealScreen",
+      params: { projectId: id, title },
+    })
+  }
+/>
+        )}
 
-      <NavigationButtons
-        projectId={processedParams.id}
-        projectTitle={processedParams.title}
-      />
+        {/* Presupuesto → Solo admin/administativo */}
+        {canAccessBudget && (
+          <DashboardCard
+            icon="💰"
+            title="Presupuesto"
+            subtitle="Fases, AIU, IVA y totales"
+            colors={["#3182CE", "#4FD1C5"]}
+            onPress={() =>
+              router.push({
+                pathname: "/BudgetScreen",
+                params: { projectId: id, title },
+              })
+            }
+          />
+        )}
 
-      <NotesHistory
-        notes={notes}
-        loading={notesLoading}
-        onEditNote={handleEditNote}
-        projectId={processedParams.id}
-      />
+        <DashboardCard
+            icon="🗃️"
+            title="Inventario"
+            subtitle="Inventario de materiales del proyecto"
+            colors={["#ce31a7ff", "#61044dff"]}
+            onPress={() =>
+              router.push({
+                pathname: "/ProjectStockScreen",
+                params: { projectId: id, title },
+              })
+            }
+          />
 
-      <EditNoteModal
-        visible={editModal}
-        editText={editText}
-        onTextChange={setEditText}
-        onSave={handleUpdateNote}
-        onClose={() => setEditModal(false)}
-      />
+          {/* Gastos Reales (solo Admin / Administrativo) */}
+{canAddViaticos && (
+  <DashboardCard
+    icon="💸"
+    title="Gastos Reales"
+    subtitle="Materiales, viáticos y mano de obra"
+    colors={["#F6AD55", "#DD6B20"]}
+    onPress={() =>
+      router.push({
+        pathname: "/RealExpensesScreen",
+        params: { projectId: id, title },
+      })
+    }
+  />
+)}
 
-      {loading && (
-        <LoadingOverlay message="Subiendo imágenes..." />
-      )}
+
+        {/* NUEVA NOTA */}
+        <Text style={styles.sectionTitle}>Nueva Nota</Text>
+
+        {canWrite ? (
+          <>
+            <NoteEditor
+              noteText={noteText}
+              onNoteChange={setNoteText}
+              selectedImages={selectedImages}
+              onSave={handleSaveNote}
+              loading={loading}
+            />
+
+            <ImageUploader
+              onImagesSelected={handleAddImages}
+              selectedImages={selectedImages}
+              onClearImages={() => setSelectedImages([])}
+            />
+          </>
+        ) : (
+          <View style={styles.readOnlyBox}>
+            <Text style={styles.readOnlyText}>
+              No tienes permisos para agregar notas.
+            </Text>
+          </View>
+        )}
+
+        {/* HISTORIAL */}
+        <Text style={styles.sectionTitle}>Historial</Text>
+        <NotesHistory
+          notes={notes}
+          loading={notesLoading}
+          onEditNote={handleEditNote}
+          projectId={id}
+        />
+
+        {/* MODAL EDITAR */}
+        <EditNoteModal
+          visible={editModal}
+          editText={editText}
+          onTextChange={setEditText}
+          onSave={handleUpdateNote}
+          onClose={() => setEditModal(false)}
+        />
+      </ScrollView>
     </LinearGradient>
   );
 }
 
-// Componente de carga overlay
-function LoadingOverlay({ message }) {
-  return (
-    <Modal transparent animationType="fade">
-      <View style={styles.loadingOverlay}>
-        <ActivityIndicator size="large" color="#FFF" />
-        <Text style={styles.loadingText}>{message}</Text>
-      </View>
-    </Modal>
-  );
-}
+/* -------------------------------------------------------- */
+/* ESTILOS */
+/* -------------------------------------------------------- */
 
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1 },
+  scroll: { padding: 16 },
+
+  center: {
     flex: 1,
-    backgroundColor: '#1E1E2F',
-    padding: 20,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1E1E2F',
-    padding: 20,
-  },
-  loadingText: {
-    color: '#FFF',
-    textAlign: 'center',
-    marginBottom: 10,
-    fontSize: 16,
-  },
-  errorText: {
-    color: '#F56565',
-    textAlign: 'center',
-    marginBottom: 10,
-    fontSize: 14,
-  },
-  debugText: {
-    color: '#CCC',
-    textAlign: 'center',
-    fontSize: 12,
-    marginTop: 10,
-  },
-  title: {
-    fontSize: 22,
-    color: '#FFF',
-    marginBottom: 10,
-    textAlign: 'center',
-    fontWeight: 'bold',
-  },
-  readOnlyMessage: {
-    backgroundColor: '#2C2C3A',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  readOnlyText: {
-    color: '#ECC94B',
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  loadingOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#1A365D",
+  },
+  loadingText: { color: "#FFF", marginTop: 10 },
+
+  headerCard: {
+    backgroundColor: "rgba(15,23,42,0.9)",
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.5)",
+  },
+
+  headerTitle: {
+    fontSize: 22,
+    color: "#FFF",
+    fontWeight: "700",
+  },
+
+  headerSubtitle: {
+    fontSize: 14,
+    color: "#CBD5E0",
+    marginTop: 6,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    color: "#FFF",
+    fontWeight: "700",
+    marginBottom: 10,
+    marginTop: 10,
+  },
+
+  /* Dashboard cards */
+  cardWrapper: { marginBottom: 12 },
+  cardGradient: {
+    flexDirection: "row",
+    padding: 16,
+    borderRadius: 16,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
+  iconText: { fontSize: 24 },
+  cardTitle: { color: "#FFF", fontSize: 16, fontWeight: "700" },
+  cardSubtitle: { color: "#E2E8F0", fontSize: 13, marginTop: 2 },
+  arrow: { fontSize: 32, color: "#FFF", marginLeft: 6 },
+
+  readOnlyBox: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    padding: 14,
+    borderRadius: 10,
+  },
+  readOnlyText: {
+    color: "#ECC94B",
+    textAlign: "center",
   },
 });

@@ -1,5 +1,6 @@
-// components/home/ProjectCard.js (versión sin alarma de retraso)
+// components/home/ProjectCard.js
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useUser } from '../../context/UserContext';
 
 export default function ProjectCard({ 
   item, 
@@ -9,9 +10,22 @@ export default function ProjectCard({
   onLongPress,
   onLiberarPersona 
 }) {
+  const { role } = useUser();
   const asignados = personal.filter(p => p.proyectoAsignado === item.title);
   const progressPercent = Math.round((item.progress || 0) * 100);
   const isDone = progressPercent >= 100;
+
+  const canViewUtility = ["Administrador", "Administrativo"].includes(role);
+  const utility = item.utility || 0;
+
+  // Potencia AC instalada (kW) - soporta varios nombres por compatibilidad
+  const potenciaAcKw = Number(
+    item?.potenciaAcKw ??
+    item?.potenciaACKw ??
+    item?.potenciaAC ??
+    item?.potenciaAc ??
+    0
+  );
 
   const handleLocationPress = () => {
     if (!item.ubicacion) return;
@@ -25,6 +39,18 @@ export default function ProjectCard({
     );
   };
 
+  const statusColor = item.retrasada
+    ? '#F97373' // rojo suave
+    : isDone
+      ? '#34D399' // verde éxito
+      : '#FACC15'; // amarillo para en progreso
+
+  const statusLabel = isDone
+    ? 'Finalizado'
+    : item.retrasada
+      ? 'Con retrasos'
+      : 'Al día';
+
   return (
     <TouchableOpacity
       style={styles.card}
@@ -32,80 +58,131 @@ export default function ProjectCard({
       onLongPress={() => onLongPress(item)}
       delayLongPress={300}
     >
-      {/* Nombre del proyecto */}
-      <Text style={styles.cardText}>
-        {item.title ? item.title : "(Sin nombre)"}
-      </Text>
+      {/* Encabezado */}
+      <View style={styles.headerRow}>
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <Text style={styles.projectTitle}>
+            {item.title ? item.title : "(Sin nombre)"}
+          </Text>
 
-      {/* Estado del proyecto */}
-      <View style={styles.statusContainer}>
-        <View
-          style={[
-            styles.statusIndicator,
-            { backgroundColor: item.retrasada ? "#E53E3E" : "#22c55e" }
-          ]}
-        />
-        <Text style={styles.statusText}>
-          {item.retrasada ? "Con retrasos" : "Al día"}
-        </Text>
+          {item.startDate ? (
+            <Text style={styles.projectDate}>
+              📅 {new Date(item.startDate).toLocaleDateString()}
+            </Text>
+          ) : (
+            <Text style={styles.projectDate}>📅 (Sin fecha)</Text>
+          )}
+
+          {/* kW AC instalados en el proyecto */}
+          {potenciaAcKw > 0 && (
+            <Text style={styles.projectKw}>
+              ⚡ {potenciaAcKw.toLocaleString("es-CO", { maximumFractionDigits: 2 })} kW AC
+            </Text>
+          )}
+        </View>
+
+        <View style={[styles.statusBadge, { backgroundColor: `${statusColor}33`, borderColor: statusColor }]}>
+          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          <Text style={[styles.statusText, { color: statusColor }]}>
+            {statusLabel}
+          </Text>
+        </View>
       </View>
-
-      {/* Badge de finalizado */}
-      {isDone && (
-        <Text style={styles.doneBadge}>✅ Finalizado</Text>
-      )}
-
-      {/* Fecha de inicio */}
-      {item.startDate ? (
-        <Text style={styles.dateText}>
-          📅 {new Date(item.startDate).toLocaleDateString()}
-        </Text>
-      ) : (
-        <Text style={styles.dateText}>📅 (Sin fecha)</Text>
-      )}
 
       {/* Ubicación */}
-      {item.ubicacion ? (
-        <Text
-          style={styles.locationText}
-          onPress={handleLocationPress}
-        >
-          📍 {item.ubicacion}
-        </Text>
-      ) : (
-        <Text style={styles.dateText}>📍 (Sin ubicación)</Text>
-      )}
+      <View style={styles.rowBetween}>
+        {item.ubicacion ? (
+          <Text
+            style={styles.locationText}
+            onPress={handleLocationPress}
+            numberOfLines={1}
+          >
+            📍 {item.ubicacion}
+          </Text>
+        ) : (
+          <Text style={styles.locationPlaceholder}>📍 (Sin ubicación)</Text>
+        )}
+
+        {/* Utilidad (solo roles permitidos) */}
+        {canViewUtility && utility > 0 && (
+          <View style={styles.utilityBadge}>
+            <Text style={styles.utilityLabel}>Utilidad</Text>
+            <Text style={styles.utilityValue}>
+              ${utility.toLocaleString()}
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* Barra de progreso */}
-      <View style={styles.progressBar}>
-        <View 
-          style={[
-            styles.progressFill, 
-            { width: `${(item.progress || 0) * 100}%` }
-          ]} 
-        />
+      <View style={styles.progressContainer}>
+        <View style={styles.progressBar}>
+          <View 
+            style={[
+              styles.progressFill, 
+              { 
+                width: `${progressPercent}%`,
+                backgroundColor: isDone ? '#22C55E' : '#3B82F6',
+              }
+            ]} 
+          />
+        </View>
+        <Text style={styles.progressText}>
+          {progressPercent}% completado
+        </Text>
       </View>
-      <Text style={styles.progressText}>
-        {progressPercent}% completado
-      </Text>
+
+      {/* Resumen de tareas si existen datos */}
+      {(item.totalTareas || item.totalMantenimientos || item.tareasNoAplica) && (
+        <View style={styles.tasksRow}>
+          {typeof item.totalTareas === 'number' && (
+            <Text style={styles.tasksPill}>
+              Tareas: {item.tareasCumplidas || 0}/{item.totalTareas}
+            </Text>
+          )}
+          {typeof item.totalMantenimientos === 'number' && (
+            <Text style={styles.tasksPillSecondary}>
+              Mantenimiento: {item.mantenimientosCumplidos || 0}/{item.totalMantenimientos}
+            </Text>
+          )}
+          {typeof item.tareasNoAplica === 'number' && item.tareasNoAplica > 0 && (
+            <Text style={styles.tasksPillMuted}>
+              No aplica: {item.tareasNoAplica}
+            </Text>
+          )}
+        </View>
+      )}
 
       {/* Personal asignado */}
       <View style={styles.personalContainer}>
-        <Text style={styles.personalTitle}>
-          👥 Personal asignado:
-        </Text>
+        <View style={styles.personalHeaderRow}>
+          <Text style={styles.personalTitle}>
+            👥 Personal asignado
+          </Text>
+          {asignados.length > 0 && (
+            <Text style={styles.personalCount}>
+              {asignados.length} persona{asignados.length !== 1 ? 's' : ''}
+            </Text>
+          )}
+        </View>
+
         {asignados.length > 0 ? (
           asignados.map(p => (
             <View key={p.id} style={styles.personaItem}>
-              <Text style={styles.personaText}>
-                • {p.nombre} ({p.cargo})
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.personaText}>
+                  {p.nombre}
+                </Text>
+                <Text style={styles.personaCargo}>
+                  {p.cargo}
+                </Text>
+              </View>
               {canManage && (
                 <TouchableOpacity
                   onPress={() => onLiberarPersona(p)}
                   style={styles.liberarButton}
                 >
-                  <Text style={styles.liberarText}>✖</Text>
+                  <Text style={styles.liberarText}>Liberar</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -120,102 +197,193 @@ export default function ProjectCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#2C2C3Aaa',
-    padding: 20,
-    borderRadius: 12,
+    backgroundColor: '#111827ee', // tarjeta oscura
+    padding: 16,
+    borderRadius: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.35)',
   },
-  cardText: {
-    color: '#FFF',
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  projectTitle: {
+    color: '#F9FAFB',
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  statusContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
+  projectDate: {
+    color: '#9CA3AF',
+    fontSize: 13,
   },
-  statusIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  projectKw: {
+    marginTop: 3,
+    color: '#A7F3D0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
     marginRight: 6,
   },
   statusText: {
-    color: "#FFF",
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: '600',
   },
-  doneBadge: {
-    color: '#22c55e',
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  dateText: {
-    color: '#DDD',
-    fontSize: 14,
-    marginBottom: 4,
+  rowBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
   },
   locationText: {
-    color: '#4DA6FF',
-    fontSize: 14,
-    marginBottom: 8,
+    color: '#93C5FD',
+    fontSize: 13,
+    flex: 1,
+    marginRight: 8,
     textDecorationLine: 'underline',
+  },
+  locationPlaceholder: {
+    color: '#6B7280',
+    fontSize: 13,
+    flex: 1,
+    marginRight: 8,
+  },
+  utilityBadge: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#22C55E',
+    alignItems: 'flex-end',
+  },
+  utilityLabel: {
+    color: '#BBF7D0',
+    fontSize: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  utilityValue: {
+    color: '#4ADE80',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  progressContainer: {
+    marginBottom: 10,
   },
   progressBar: {
     height: 8,
-    backgroundColor: '#444',
-    borderRadius: 5,
-    marginBottom: 4,
+    backgroundColor: '#1F2933',
+    borderRadius: 999,
     overflow: 'hidden',
+    marginBottom: 4,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#48BB78',
-    borderRadius: 5,
+    borderRadius: 999,
   },
   progressText: {
-    color: '#FFF',
+    color: '#E5E7EB',
     fontSize: 12,
-    marginBottom: 8,
+  },
+  tasksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  tasksPill: {
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    color: '#BFDBFE',
+    fontSize: 11,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  tasksPillSecondary: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    color: '#BBF7D0',
+    fontSize: 11,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  tasksPillMuted: {
+    backgroundColor: 'rgba(148, 163, 184, 0.12)',
+    color: '#E5E7EB',
+    fontSize: 11,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
   personalContainer: {
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#444',
+    marginTop: 4,
     paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(55, 65, 81, 0.9)',
+  },
+  personalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   personalTitle: {
-    color: '#FFF',
-    fontSize: 15,
+    color: '#F9FAFB',
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 6,
+  },
+  personalCount: {
+    color: '#9CA3AF',
+    fontSize: 12,
   },
   personaItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginVertical: 4,
+    paddingVertical: 4,
   },
   personaText: {
-    color: '#DDD',
-    fontSize: 14,
-    flex: 1,
+    color: '#E5E7EB',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  personaCargo: {
+    color: '#9CA3AF',
+    fontSize: 11,
   },
   liberarButton: {
-    padding: 4,
-    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248, 113, 113, 0.12)',
+    borderWidth: 1,
+    borderColor: '#F87171',
+    marginLeft: 12,
   },
   liberarText: {
-    color: "#E53E3E",
-    fontSize: 16,
-    fontWeight: "bold",
+    color: "#FCA5A5",
+    fontSize: 11,
+    fontWeight: "600",
   },
   sinPersonal: {
-    color: '#AAA',
-    fontSize: 14,
+    color: '#9CA3AF',
+    fontSize: 12,
     fontStyle: 'italic',
   },
 });

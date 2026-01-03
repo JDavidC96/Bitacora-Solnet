@@ -1,198 +1,283 @@
 // services/personalService.js
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    updateDoc,
-    where
-} from 'firebase/firestore';
-import { db } from '../firebase/firebaseConfig';
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+
+import { db } from "../firebase/firebaseConfig";
+import { calculateWorkHours } from "../utils/calculateWorkHours";
+import { horasLaboralesService } from "./horasLaboralesService";
+import realExpensesService from "./realExpensesService";
+import tarifasService from "./tarifasService";
 
 export const personalService = {
-  /**
-   * Crear nueva persona
-   */
-  create: async (personalData) => {
-    const { nombre, cargo } = personalData;
-    
-    if (!nombre?.trim() || !cargo?.trim()) {
-      throw new Error('Nombre y cargo son requeridos');
-    }
-
-    try {
-      const personalRef = await addDoc(collection(db, 'personal'), {
-        nombre: nombre.trim(),
-        cargo: cargo.trim(),
-        estado: 'libre',
-        proyectoAsignado: null,
-        createdAt: new Date().toISOString(),
-      });
-      
-      return { id: personalRef.id, success: true };
-    } catch (error) {
-      console.error('Error creando personal:', error);
-      throw new Error('No se pudo crear la persona');
-    }
+  /**************************************************************
+   * 1) Obtener todo el personal
+   **************************************************************/
+  async getAll() {
+    const snap = await getDocs(collection(db, "personal"));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
-  /**
-   * Asignar persona a proyecto
-   */
-  assignToProject: async (personId, projectTitle) => {
-    try {
-      const personaRef = doc(db, 'personal', personId);
-      
-      // Verificar que la persona existe
-      const personaSnap = await getDoc(personaRef);
-      if (!personaSnap.exists()) {
-        throw new Error('Persona no encontrada');
-      }
+  listenAll(callback) {
+  const ref = collection(db, "personal");
+  return onSnapshot(ref, (snap) => {
+    const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    callback(data);
+  });
+},
 
-      const personaData = personaSnap.data();
+  /**************************************************************
+   * 2) Crear persona
+   **************************************************************/
+  async create(data) {
+    const payload = {
+      nombre: data.nombre,
+      documento: data.documento || "",
+      telefono: data.telefono || "",
+      rol: data.cargo || "Tecnico",
 
-      // Actualizar estado de la persona
-      await updateDoc(personaRef, {
-        estado: 'ocupado',
-        proyectoAsignado: projectTitle,
-        updatedAt: new Date().toISOString(),
-      });
+      estado: "libre",
+      proyectoAsignado: "",
+      proyectoId: null,
+      tipoAsignacion: "",
+      asignadoEn: null,
 
-      // Registrar en historial
-      await addDoc(collection(db, 'historial_personal'), {
-        nombre: personaData.nombre,
-        destino: projectTitle,
-        fechaInicio: new Date().toISOString(),
-        fechaFin: null,
-        createdAt: new Date().toISOString(),
-      });
+      createdAt: new Date().toISOString(),
+    };
 
-      return { success: true };
-    } catch (error) {
-      console.error('Error asignando personal:', error);
-      throw new Error('No se pudo asignar la persona al proyecto');
-    }
+    await addDoc(collection(db, "personal"), payload);
+    return { ok: true };
   },
 
-  /**
-   * Liberar persona de proyecto
-   */
-  liberar: async (personId) => {
+  /**************************************************************
+   * 3) Asignar a proyecto REAL
+   *    project = { id, title }
+   **************************************************************/
+  async assignToProject(personId, project) {
+  if (!project?.id) {
+    throw new Error("Proyecto inválido (ID requerido)");
+  }
+
+  const ref = doc(db, "personal", personId);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) throw new Error("Persona no encontrada");
+  if (snap.data().estado === "ocupado")
+    throw new Error("La persona ya está asignada");
+
+  const now = new Date().toISOString();
+
+  await updateDoc(ref, {
+    estado: "ocupado",
+    proyectoAsignado: project.title,
+    proyectoId: project.id,
+    tipoAsignacion: "proyecto",
+    asignadoEn: now,
+  });
+
+  await addDoc(collection(db, "historial_personal"), {
+    personalId: personId,
+    nombre: snap.data().nombre,
+    destino: project.title,
+    tipoAsignacion: "proyecto",
+    proyectoId: project.id,
+
+    fechaInicio: now,
+    fechaFin: null,
+    estado: "en_curso",
+
+    createdAt: now,
+  });
+
+  return { ok: true };
+},
+
+  /**************************************************************
+   * 4) Asignar a destino especial (Bodega / RETIE / Manual)
+   **************************************************************/
+  async assignToDestination(personId, destino) {
+  const ref = doc(db, "personal", personId);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) throw new Error("Persona no encontrada");
+  if (snap.data().estado === "ocupado")
+    throw new Error("La persona ya está asignada");
+
+  const now = new Date().toISOString();
+  const destinoKey = destino.toLowerCase().replace(/\s+/g, "-");
+
+  // 🔹 ACTUALIZAR PERSONAL
+  await updateDoc(ref, {
+    estado: "ocupado",
+    proyectoAsignado: destino,
+    proyectoId: null,
+    tipoAsignacion: destinoKey,
+    asignadoEn: now,
+  });
+
+  // 🔹 CREAR JORNADA (UN SOLO DOC)
+  await addDoc(collection(db, "historial_personal"), {
+    personalId: personId,
+    nombre: snap.data().nombre,
+    destino,
+    tipoAsignacion: destinoKey,
+    proyectoId: null,
+
+    fechaInicio: now,
+    fechaFin: null,
+    estado: "en_curso",
+
+    createdAt: now,
+  });
+
+  return { ok: true };
+},
+
+
+  /**************************************************************
+   * 5) Liberar persona (CIERRA JORNADA)
+   **************************************************************/
+  async liberar(personId) {
+  const ref = doc(db, "personal", personId);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) throw new Error("Persona no encontrada");
+
+  const data = snap.data();
+  if (data.estado !== "ocupado" || !data.asignadoEn) {
+    throw new Error("La persona ya está libre");
+  }
+
+  const fechaInicio = new Date(data.asignadoEn);
+  const fechaFin = new Date();
+  const nowISO = fechaFin.toISOString();
+
+  /* ==============================
+   * CÁLCULO DE HORAS
+   * ============================== */
+  const { normalHours, extraHours } = calculateWorkHours(
+    fechaInicio.toISOString(),
+    fechaFin.toISOString()
+  );
+
+  const horasNormales = normalHours;
+  const horasExtras = extraHours;
+  const totalHoras = horasNormales + horasExtras;
+
+  /* ==============================
+   * REGISTRO DE HORAS (SE MANTIENE)
+   * ============================== */
+  await horasLaboralesService.registrarJornada({
+    personalId: personId,
+    nombre: data.nombre,
+    cargo: data.cargo || "Tecnico",
+
+    fechaInicio: fechaInicio.toISOString(),
+    fechaFin: fechaFin.toISOString(),
+
+    horasNormales,
+    horasExtras,
+    totalHoras,
+
+    destino: data.proyectoAsignado,
+    tipoAsignacion: data.tipoAsignacion,
+    proyectoId: data.proyectoId,
+
+    createdAt: nowISO,
+    source: "liberacion",
+  });
+
+  /* ==============================
+   * HISTORIAL (ACTUALIZAR, NO CREAR)
+   * ============================== */
+  const q = query(
+    collection(db, "historial_personal"),
+    where("personalId", "==", personId),
+    where("estado", "==", "en_curso"),
+    limit(1)
+  );
+
+  const snapHist = await getDocs(q);
+
+  if (snapHist.empty) {
+    throw new Error("No se encontró jornada activa para cerrar");
+  }
+
+  await updateDoc(snapHist.docs[0].ref, {
+    fechaFin: nowISO,
+    estado: "finalizado",
+  });
+
+  /* ==============================
+   * GASTO REAL (SE MANTIENE)
+   * ============================== */
+  if (data.proyectoId) {
     try {
-      const personaRef = doc(db, 'personal', personId);
-      
-      // Verificar que la persona existe
-      const personaSnap = await getDoc(personaRef);
-      if (!personaSnap.exists()) {
-        throw new Error('Persona no encontrada');
-      }
-
-      const personaData = personaSnap.data();
-
-      // Actualizar estado de la persona
-      await updateDoc(personaRef, {
-        estado: 'libre',
-        proyectoAsignado: null,
-        updatedAt: new Date().toISOString(),
-      });
-
-      // Cerrar registro en historial
-      const qHist = query(
-        collection(db, 'historial_personal'),
-        where('nombre', '==', personaData.nombre),
-        where('fechaFin', '==', null),
-        orderBy('fechaInicio', 'desc'),
-        limit(1)
+      const tarifaHora = await tarifasService.getTarifaByRol(
+        data.cargo || "Tecnico"
       );
-      
-      const snap = await getDocs(qHist);
-      if (!snap.empty) {
-        const ref = doc(db, 'historial_personal', snap.docs[0].id);
-        await updateDoc(ref, { 
-          fechaFin: new Date().toISOString() 
-        });
-      }
 
-      return { success: true };
-    } catch (error) {
-      console.error('Error liberando personal:', error);
-      throw new Error('No se pudo liberar a la persona');
-    }
-  },
+      const costoNormal = horasNormales * tarifaHora;
+      const costoExtra = horasExtras * tarifaHora * 1.25;
+      const costoTotal = costoNormal + costoExtra;
 
-  /**
-   * Eliminar persona
-   */
-  delete: async (personId, nombrePersona) => {
-    try {
-      const personaRef = doc(db, 'personal', personId);
-      
-      // Verificar que la persona existe
-      const personaSnap = await getDoc(personaRef);
-      if (!personaSnap.exists()) {
-        throw new Error('Persona no encontrada');
-      }
+      await realExpensesService.createManoObra({
+        projectId: data.proyectoId,
+        personalId: personId,
+        nombre: data.nombre,
+        rol: data.cargo || "Tecnico",
 
-      await deleteDoc(personaRef);
-      return { success: true };
-    } catch (error) {
-      console.error('Error eliminando personal:', error);
-      throw new Error('No se pudo eliminar a la persona');
-    }
-  },
+        horasNormales,
+        horasExtras,
 
-  /**
-   * Obtener todo el personal
-   */
-  getAll: async () => {
-    try {
-      const personalRef = collection(db, 'personal');
-      const snap = await getDocs(personalRef);
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('Error obteniendo personal:', error);
-      throw new Error('No se pudo obtener el personal');
-    }
-  },
+        tarifaHora,
+        costoNormal,
+        costoExtra,
+        costoTotal,
 
-  /**
-   * Obtener personal libre
-   */
-  getLibre: async () => {
-    try {
-      const q = query(
-        collection(db, 'personal'),
-        where('estado', '==', 'libre')
-      );
-      const snap = await getDocs(q);
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('Error obteniendo personal libre:', error);
-      throw new Error('No se pudo obtener el personal libre');
-    }
-  },
+        fechaInicio: fechaInicio.toISOString(),
+        fechaFin: fechaFin.toISOString(),
 
-  /**
-   * Obtener personal ocupado
-   */
-  getOcupado: async () => {
-    try {
-      const q = query(
-        collection(db, 'personal'),
-        where('estado', '==', 'ocupado')
-      );
-      const snap = await getDocs(q);
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (error) {
-      console.error('Error obteniendo personal ocupado:', error);
-      throw new Error('No se pudo obtener el personal ocupado');
+        source: "horas_personal",
+        createdAt: nowISO,
+      });
+    } catch (err) {
+      console.error("Error creando gasto real:", err);
     }
   }
+
+  /* ==============================
+   * LIBERAR PERSONA
+   * ============================== */
+  await updateDoc(ref, {
+    estado: "libre",
+    proyectoAsignado: "",
+    proyectoId: null,
+    tipoAsignacion: "",
+    asignadoEn: null,
+  });
+
+  return { ok: true, horasNormales, horasExtras, totalHoras };
+}
+,
+
+  /**************************************************************
+   * 6) Eliminar persona
+   **************************************************************/
+  async delete(personId) {
+    await deleteDoc(doc(db, "personal", personId));
+    return { ok: true };
+  },
 };
 
 export default personalService;

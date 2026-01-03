@@ -1,12 +1,12 @@
 // components/personal/PersonalItem.js
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 export default function PersonalItem({
   item,
   onPress,
   onLongPress,
   onDelete,
-  role
+  role,
 }) {
   const isAdmin = role === "Administrador";
 
@@ -20,10 +20,13 @@ export default function PersonalItem({
       <View style={styles.info}>
         <Text style={styles.name}>{item.nombre}</Text>
         <Text style={styles.role}>{item.cargo}</Text>
-        <Text style={[
-          styles.status,
-          { color: item.estado === "libre" ? "lime" : "red" }
-        ]}>
+
+        <Text
+          style={[
+            styles.status,
+            { color: item.estado === "libre" ? "lime" : "red" },
+          ]}
+        >
           {item.estado === "libre"
             ? "🟢 Libre"
             : `🔴 Ocupado en ${item.proyectoAsignado || "un proyecto"}`}
@@ -31,10 +34,7 @@ export default function PersonalItem({
       </View>
 
       {isAdmin && (
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={onDelete}
-        >
+        <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
           <Text style={styles.deleteText}>🗑️</Text>
         </TouchableOpacity>
       )}

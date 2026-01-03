@@ -12,39 +12,50 @@ import {
   where
 } from 'firebase/firestore';
 import { db } from '../firebase/firebaseConfig';
+import { DEFINICION_TAREAS } from '../helper';
 
 export const projectService = {
   // ========== CRUD BÁSICO ==========
   
   /**
-   * Crear nuevo proyecto
-   */
-  create: async (projectData) => {
-    const { name, location, date } = projectData;
-    
-    if (!name?.trim() || !location?.trim()) {
-      throw new Error('Nombre y ubicación son requeridos');
+ * Crear nuevo proyecto
+ */
+create: async (projectData) => {
+  const { name, location, date, potenciaAC } = projectData;
+
+  if (!name?.trim() || !location?.trim()) {
+    throw new Error('Nombre y ubicación son requeridos');
+  }
+
+  try {
+    // potenciaAC es opcional
+    const potenciaNum = Number(potenciaAC);
+
+    const projectPayload = {
+      title: name.trim(),
+      ubicacion: location.trim(),
+      startDate: date.toISOString(),
+      createdAt: new Date().toISOString(),
+      createdBy: 'system',
+      completed: false,
+      completedAt: null,
+      status: 'active',
+    };
+
+    // Guardar potencia si viene definida (permitimos 0 también)
+    if (Number.isFinite(potenciaNum) && potenciaNum >= 0) {
+      projectPayload.potenciaAC = potenciaNum;
     }
 
-    try {
-      const projectRef = await addDoc(collection(db, 'proyectos'), {
-        title: name.trim(),
-        ubicacion: location.trim(),
-        startDate: date.toISOString(),
-        createdAt: new Date().toISOString(),
-        createdBy: 'system',
-        // Campos para gestión de completado
-        completed: false,
-        completedAt: null,
-        status: 'active'
-      });
-      
-      return { id: projectRef.id, success: true };
-    } catch (error) {
-      console.error('Error creando proyecto:', error);
-      throw new Error('No se pudo crear el proyecto');
-    }
-  },
+    const projectRef = await addDoc(collection(db, 'proyectos'), projectPayload);
+
+    return { id: projectRef.id, success: true };
+  } catch (error) {
+    console.error('Error creando proyecto:', error);
+    throw new Error('No se pudo crear el proyecto');
+  }
+},
+
 
   /**
    * Obtener proyecto por ID
@@ -353,34 +364,34 @@ export const projectService = {
    * Crear etapas iniciales del proyecto
    */
   createInitialStages: async (projectId, startDate, extraDurations = {}) => {
-    try {
-      const { buildSchedule, DEFINICION_TAREAS, HOLIDAYS_CO } = await import('../helper');
-      
-      const schedule = buildSchedule(startDate, extraDurations, HOLIDAYS_CO);
-      const stagesCreation = DEFINICION_TAREAS.map(async (def) => {
-        const scheduled = schedule.get(def.id);
-        
-        return addDoc(collection(db, 'proyectos', projectId, 'etapas'), {
-          titulo: def.titulo,
-          fase: def.fase,
-          idTarea: def.id,
-          diasDuracion: def.dias,
-          fechaInicio: scheduled.fechaInicio,
-          fechaFin: scheduled.fechaFin,
-          cumplida: false,
-          prorrogas: 0,
-          notas: [],
-          createdAt: new Date().toISOString()
-        });
-      });
+  try {
+    const schedule = buildSchedule(startDate, extraDurations, HOLIDAYS_CO);
 
-      await Promise.all(stagesCreation);
-      return { success: true };
-    } catch (error) {
-      console.error('Error creando etapas iniciales:', error);
-      throw new Error('No se pudieron crear las etapas del proyecto');
-    }
-  },
+    const stagesCreation = DEFINICION_TAREAS.map(async (def) => {
+      const scheduled = schedule.get(def.id);
+
+      return addDoc(collection(db, 'proyectos', projectId, 'etapas'), {
+        titulo: def.titulo,
+        fase: def.fase,
+        idTarea: def.id,
+        diasDuracion: def.dias,
+        fechaInicio: scheduled.fechaInicio,
+        fechaFin: scheduled.fechaFin,
+        cumplida: false,
+        prorrogas: 0,
+        notas: [],
+        createdAt: new Date().toISOString()
+      });
+    });
+
+    await Promise.all(stagesCreation);
+    return { success: true };
+  } catch (error) {
+    console.error('Error creando etapas iniciales:', error);
+    throw new Error('No se pudieron crear las etapas del proyecto');
+  }
+},
+
 
   /**
    * Obtener todas las etapas de un proyecto
@@ -543,56 +554,52 @@ export const projectService = {
    * Aplicar prórroga a una tarea y recalcular fechas
    */
   applyProrroga: async (projectId, taskId, extraDays, projectStartISO) => {
-    try {
-      const { buildSchedule, DEFINICION_TAREAS, HOLIDAYS_CO } = await import('../helper');
-      
-      // Obtener todas las etapas actuales
-      const stages = await projectService.getStages(projectId);
-      const byId = {};
-      const extraDurations = {};
-      
-      stages.forEach(stage => {
-        byId[stage.idTarea] = stage;
-        extraDurations[stage.idTarea] = stage.prorrogas || 0;
-      });
+  try {
+    const stages = await projectService.getStages(projectId);
 
-      // Aplicar prórroga a la tarea específica
-      extraDurations[taskId] = (extraDurations[taskId] || 0) + parseInt(extraDays);
+    const byId = {};
+    const extraDurations = {};
 
-      // Recalcular todo el schedule
-      const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO);
+    stages.forEach(stage => {
+      byId[stage.idTarea] = stage;
+      extraDurations[stage.idTarea] = stage.prorrogas || 0;
+    });
 
-      // Actualizar todas las etapas
-      const updatePromises = DEFINICION_TAREAS.map(async (def) => {
-        const newDates = newSchedule.get(def.id);
-        const stageId = byId[def.id]?.id;
-        
-        if (stageId && newDates) {
-          const updates = {
-            fechaInicio: newDates.fechaInicio,
-            fechaFin: newDates.fechaFin,
-            prorrogas: extraDurations[def.id]
-          };
+    extraDurations[taskId] =
+      (extraDurations[taskId] || 0) + parseInt(extraDays);
 
-          // Agregar nota solo para la tarea con prórroga
-          if (def.id === taskId) {
-            updates.notas = [
-              ...(byId[def.id].notas || []),
-              `Prórroga: +${extraDays} días hábiles`
-            ];
-          }
+    const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO);
 
-          return projectService.updateStage(projectId, stageId, updates);
+    const updatePromises = DEFINICION_TAREAS.map(async (def) => {
+      const newDates = newSchedule.get(def.id);
+      const stageId = byId[def.id]?.id;
+
+      if (stageId && newDates) {
+        const updates = {
+          fechaInicio: newDates.fechaInicio,
+          fechaFin: newDates.fechaFin,
+          prorrogas: extraDurations[def.id],
+        };
+
+        if (def.id === taskId) {
+          updates.notas = [
+            ...(byId[def.id].notas || []),
+            `Prórroga: +${extraDays} días hábiles`,
+          ];
         }
-      });
 
-      await Promise.all(updatePromises);
-      return { success: true };
-    } catch (error) {
-      console.error('Error aplicando prórroga:', error);
-      throw new Error('No se pudo aplicar la prórroga');
-    }
-  },
+        return projectService.updateStage(projectId, stageId, updates);
+      }
+    });
+
+    await Promise.all(updatePromises);
+    return { success: true };
+  } catch (error) {
+    console.error('Error aplicando prórroga:', error);
+    throw new Error('No se pudo aplicar la prórroga');
+  }
+},
+
 
   // ========== UTILIDADES ==========
 
@@ -600,47 +607,43 @@ export const projectService = {
    * Cambiar fecha de inicio del proyecto y recalcular todas las etapas
    */
   changeStartDate: async (projectId, newStartDate, projectStartISO) => {
-    try {
-      const { buildSchedule, DEFINICION_TAREAS, HOLIDAYS_CO } = await import('../helper');
-      
-      // Obtener etapas actuales para extraer prórrogas
-      const stages = await projectService.getStages(projectId);
-      const extraDurations = {};
-      const byId = {};
-      
-      stages.forEach(stage => {
-        byId[stage.idTarea] = stage;
-        extraDurations[stage.idTarea] = stage.prorrogas || 0;
-      });
+  try {
+    const stages = await projectService.getStages(projectId);
 
-      // Recalcular schedule con nueva fecha
-      const newSchedule = buildSchedule(newStartDate, extraDurations, HOLIDAYS_CO);
+    const extraDurations = {};
+    const byId = {};
 
-      // Actualizar proyecto con nueva fecha
-      await projectService.update(projectId, {
-        startDate: new Date(newStartDate).toISOString()
-      });
+    stages.forEach(stage => {
+      byId[stage.idTarea] = stage;
+      extraDurations[stage.idTarea] = stage.prorrogas || 0;
+    });
 
-      // Actualizar todas las etapas
-      const updatePromises = DEFINICION_TAREAS.map(async (def) => {
-        const newDates = newSchedule.get(def.id);
-        const stageId = byId[def.id]?.id;
-        
-        if (stageId && newDates) {
-          return projectService.updateStage(projectId, stageId, {
-            fechaInicio: newDates.fechaInicio,
-            fechaFin: newDates.fechaFin
-          });
-        }
-      });
+    const newSchedule = buildSchedule(newStartDate, extraDurations, HOLIDAYS_CO);
 
-      await Promise.all(updatePromises);
-      return { success: true };
-    } catch (error) {
-      console.error('Error cambiando fecha de inicio:', error);
-      throw new Error('No se pudo cambiar la fecha de inicio');
-    }
-  },
+    await projectService.update(projectId, {
+      startDate: new Date(newStartDate).toISOString(),
+    });
+
+    const updatePromises = DEFINICION_TAREAS.map(async (def) => {
+      const newDates = newSchedule.get(def.id);
+      const stageId = byId[def.id]?.id;
+
+      if (stageId && newDates) {
+        return projectService.updateStage(projectId, stageId, {
+          fechaInicio: newDates.fechaInicio,
+          fechaFin: newDates.fechaFin,
+        });
+      }
+    });
+
+    await Promise.all(updatePromises);
+    return { success: true };
+  } catch (error) {
+    console.error('Error cambiando fecha de inicio:', error);
+    throw new Error('No se pudo cambiar la fecha de inicio');
+  }
+},
+
 
   /**
    * Obtener estadísticas del proyecto

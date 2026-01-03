@@ -1,117 +1,111 @@
 // components/inventory/InventoryItem.js
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-export default function InventoryItem({
-  item,
-  onEdit,
-  onDelete,
-  onMove,
-  canEdit = false
-}) {
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+export default function InventoryItem({ item, onEdit, onMove }) {
   return (
-    <View style={styles.container}>
-      <View style={styles.info}>
+    <TouchableOpacity
+      style={styles.container}
+      onLongPress={onEdit}        
+      delayLongPress={220}
+    >
+      <View style={{ flex: 1 }}>
+        {/* Nombre */}
         <Text style={styles.name}>{item.nombre}</Text>
-        <Text style={styles.details}>
-          Cantidad: {item.cantidad} {item.tipo_medida || 'Unidad'}
+
+        {/* Código */}
+        <Text style={styles.code}>Código: {item.codigo || "—"}</Text>
+
+        {/* Categoría / Unidad */}
+        <Text style={styles.meta}>
+          {item.categoria || "Sin categoría"} · {item.tipo_medida}
         </Text>
-        {item.notas && (
-          <Text style={styles.notes}>Notas: {item.notas}</Text>
-        )}
-        {item.ultimaModificacion && (
-          <Text style={styles.timestamp}>
-            Última modificación: {new Date(item.ultimaModificacion?.toDate?.() || item.ultimaModificacion).toLocaleDateString()}
-          </Text>
-        )}
+
+        {/* Precio */}
+        <Text style={styles.price}>
+          $ {Number(item.precio || 0).toLocaleString("es-CO")}
+        </Text>
       </View>
 
-      {canEdit && (
-        <View style={styles.actions}>
-          {item.cantidad > 0 && (
-            <TouchableOpacity style={styles.moveButton} onPress={onMove}>
-              <Text style={styles.moveText}>Mover</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.editButton} onPress={onEdit}>
-            <Text style={styles.editText}>Editar</Text>
+      {/* Cantidad */}
+      <View style={styles.qtyBox}>
+        <Text style={styles.qty}>{item.cantidad ?? 0}</Text>
+        <Text style={styles.qtyLabel}>Stock</Text>
+
+        {/* Botón mover */}
+        {onMove && (
+          <TouchableOpacity
+            style={styles.moveBtn}
+            onPress={onMove}
+          >
+            <Text style={styles.moveText}>Mover</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
-            <Text style={styles.deleteText}>Eliminar</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
+        )}
+      </View>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  info: {
-    flex: 1,
+    backgroundColor: "#1E293B",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: "#334155",
   },
   name: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2D3748',
-    marginBottom: 4,
+    color: "#F8FAFC",
+    fontSize: 15,
+    fontWeight: "600",
   },
-  details: {
-    fontSize: 14,
-    color: '#4A5568',
-    marginBottom: 2,
-  },
-  notes: {
-    fontSize: 14,
-    color: '#718096',
-    fontStyle: 'italic',
-    marginBottom: 4,
-  },
-  timestamp: {
+  code: {
+    color: "#94A3B8",
     fontSize: 12,
-    color: '#A0AEC0',
+    marginTop: 2,
+  },
+  meta: {
+    color: "#CBD5E1",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  price: {
+    color: "#38BDF8",
+    fontWeight: "700",
     marginTop: 4,
   },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 12,
-    gap: 12,
+  qtyBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 70,
   },
-  moveButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  qty: {
+    color: "#FBBF24",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  qtyLabel: {
+    color: "#94A3B8",
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  moveBtn: {
+    backgroundColor: "#0EA5E9",
+    borderRadius: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    marginTop: 4,
   },
   moveText: {
-    color: '#805AD5',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  editButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  editText: {
-    color: '#D69E2E',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  deleteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  deleteText: {
-    color: '#E53E3E',
-    fontWeight: '600',
-    fontSize: 14,
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "600",
   },
 });

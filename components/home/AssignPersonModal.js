@@ -39,7 +39,7 @@ export default function AssignPersonModal({
   return (
     <ModalBase
       visible={visible}
-      title={`Asignar personal a ${project.title || ''}`}
+      title={`Asignar personal a\n${project.title || ''}`}
       onClose={onClose}
       footer={
         <TouchableOpacity
@@ -68,48 +68,59 @@ export default function AssignPersonModal({
           </Text>
         </View>
       ) : (
-        <DropdownSelect
-          data={dropdownData}
-          value={selectedPerson}
-          placeholder="Selecciona personal..."
-          onChange={setSelectedPerson}
-          searchable={true}
-        />
+        <View style={styles.body}>
+          <Text style={styles.label}>Selecciona una persona</Text>
+          <DropdownSelect
+            data={dropdownData}
+            value={selectedPerson}
+            placeholder="Selecciona personal..."
+            onChange={setSelectedPerson}
+            searchable={true}
+          />
+        </View>
       )}
     </ModalBase>
   );
 }
 
 const styles = {
+  body: {
+    gap: 10,
+  },
+  label: {
+    color: '#E5E7EB',
+    fontSize: 13,
+    marginBottom: 4,
+  },
   confirmButton: {
-    backgroundColor: '#5A67D8',
+    backgroundColor: '#10B981',
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 12,
+    marginTop: 8,
   },
   disabledButton: {
-    backgroundColor: '#718096',
+    backgroundColor: '#6B7280',
     opacity: 0.7,
   },
   confirmButtonText: {
     color: '#FFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 24,
   },
   emptyText: {
-    color: '#FFF',
+    color: '#F9FAFB',
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
     textAlign: 'center',
   },
   emptySubtext: {
-    color: '#AAA',
+    color: '#9CA3AF',
     fontSize: 14,
     textAlign: 'center',
   },

@@ -1,95 +1,130 @@
 // app/GeneralStockScreen.js
-import { LinearGradient } from "expo-linear-gradient";
-import { useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 
-// Hooks personalizados - desde la raíz
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import { useRouter } from "expo-router";
+
 import { useUser } from "../context/UserContext";
 import { useGeneralInventory } from "../hooks/useGeneralInventory";
 import { useProjects } from "../hooks/useProjects";
 
-// Componentes - desde components/inventory/
 import AddEditItemModal from "../components/inventory/AddEditItemModal";
 import AddItemButton from "../components/inventory/AddItemButton";
-import InventoryList from "../components/inventory/InventoryList";
+import InventoryItem from "../components/inventory/InventoryItem";
 import MoveItemModal from "../components/inventory/MoveItemModal";
 import SearchHeader from "../components/inventory/SearchHeader";
 
-// Servicios - desde la raíz
 import { inventoryService } from "../services/inventoryService";
 
 export default function GeneralStockScreen() {
-  const { role, user } = useUser(); // Añadir user aquí
-  
-  // Estados
-  const [searchQuery, setSearchQuery] = useState('');
-  const [modalVisible, setModalVisible] = useState(false);
-  const [moveModalVisible, setMoveModalVisible] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false); // Nuevo estado para acciones específicas
+  const router = useRouter();
 
-  // Hooks personalizados
-  const { items, loading: inventoryLoading } = useGeneralInventory();
+  // quitamos refresh, y aseguramos que items sea siempre un array
+  const { items: rawItems, loading } = useGeneralInventory();
+  const items = rawItems || [];
+
   const { projects } = useProjects();
+  const { role, user } = useUser();
 
-  // Permisos
-  const canEdit = ["Administrador", "Almacenista", "Supervisor", "Ingeniero"].includes(role);
+  const isAdmin =
+    role === "Administrador" || role === "Administrativo";
+  const canEdit =
+    role === "Administrador" ||
+    role === "Administrativo" ||
+    role === "Almacenista" ||
+    role === "Supervisor" ||
+    role === "Ingeniero";
 
-  // Handlers
-  const handleSaveItem = async (itemData) => {
-    setActionLoading(true); // Usar actionLoading para esta operación
+  // Filtros
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterCategoria, setFilterCategoria] = useState("Todos");
+  const [filterUnidad, setFilterUnidad] = useState("Todos");
+  const [showLowStock, setShowLowStock] = useState(false);
+  const [showWithoutCode, setShowWithoutCode] = useState(false);
+
+  // Modales
+  const [addEditVisible, setAddEditVisible] = useState(false);
+  const [moveModalVisible, setMoveModalVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // KPIs
+  const totalItems = items.length;
+  const totalValue = items.reduce(
+    (sum, i) => sum + Number(i.precio || 0) * Number(i.cantidad || 0),
+    0
+  );
+  const lowStockItems = items.filter(
+    (i) => i.minimo && Number(i.cantidad) < Number(i.minimo)
+  );
+
+  // Abrir modal editar
+  const handleEditItem = (item) => {
+    setEditingItem(item);
+    setAddEditVisible(true);
+  };
+
+  // Abrir modal mover
+  const handleMoveItem = (item) => {
+    setSelectedItem(item);
+    setMoveModalVisible(true);
+  };
+
+  // Confirmar movimiento (inventario general → proyecto)
+  const handleMoveConfirm = async (moveData) => {
+    if (!selectedItem) return;
+
+    setActionLoading(true);
+
     try {
-      if (editingItem) {
-        await inventoryService.updateGeneralItem(editingItem.id, itemData);
-        Alert.alert('Éxito', 'Ítem actualizado correctamente');
-      } else {
-        // ✅ Usar la versión con historial para nuevos items
-        await inventoryService.addGeneralItemWithHistory(itemData, user?.email);
-        Alert.alert('Éxito', 'Ítem agregado correctamente');
-      }
-      
-      setModalVisible(false);
-      setEditingItem(null);
+      await inventoryService.moveToProjectWithHistory({
+        itemId: selectedItem.id,
+        item: selectedItem,
+        cantidad: moveData.cantidad,
+        proyectoDestino: moveData.proyectoDestino,
+        usuario: user?.email,
+        proyectoDestinoTitle:
+          projects.find((p) => p.id === moveData.proyectoDestino)?.title,
+      });
+
+      setMoveModalVisible(false);
+      setSelectedItem(null);
+      Alert.alert("Éxito", "Material movido correctamente");
     } catch (error) {
-      console.error('Error guardando ítem:', error);
-      Alert.alert('Error', error.message || 'No se pudo guardar el ítem');
+      console.error("Error moviendo material:", error);
+      Alert.alert("Error", error.message || "No se pudo mover el material.");
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleEditItem = (item) => {
-    setEditingItem(item);
-    setModalVisible(true);
-  };
-
-  const handleDeleteItem = async (itemId, item) => {
+  // Eliminar material del inventario general
+  const handleDeleteItem = (item) => {
     Alert.alert(
-      'Eliminar ítem',
-      '¿Estás seguro de que quieres eliminar este ítem?',
+      "Eliminar material",
+      `¿Eliminar "${item.nombre}" del inventario general?`,
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: "Cancelar", style: "cancel" },
         {
-          text: 'Eliminar',
-          style: 'destructive',
+          text: "Eliminar",
+          style: "destructive",
           onPress: async () => {
-            setActionLoading(true); // Activar loading para eliminación
             try {
-              // ✅ Usar la versión con historial
-              await inventoryService.deleteGeneralItemWithHistory(
-                itemId, 
-                item, 
-                user?.email,
-                'Eliminación manual'
-              );
-              Alert.alert('Éxito', 'Ítem eliminado correctamente');
+              await inventoryService.deleteGeneralItem(item.id);
             } catch (error) {
-              console.error('Error eliminando ítem:', error);
-              Alert.alert('Error', 'No se pudo eliminar el ítem');
-            } finally {
-              setActionLoading(false); // Desactivar loading
+              console.error("Error eliminando item:", error);
+              Alert.alert("Error", "No se pudo eliminar el material.");
             }
           },
         },
@@ -97,131 +132,277 @@ export default function GeneralStockScreen() {
     );
   };
 
-  const handleMoveItem = (item) => {
-    setSelectedItem(item);
-    setMoveModalVisible(true);
-  };
+  // LISTA FILTRADA
+  const filtered = items
+    .filter((item) => {
+      const q = searchQuery.toLowerCase();
+      const matchSearch =
+        item.nombre?.toLowerCase().includes(q) ||
+        item.codigo?.toLowerCase().includes(q) ||
+        item.categoria?.toLowerCase().includes(q);
 
-  const handleMoveConfirm = async (moveData) => {
-    setActionLoading(true); // Usar actionLoading para mover
-    try {
-      // Cambiar a moveToProjectWithHistory
-      await inventoryService.moveToProjectWithHistory({
-        itemId: selectedItem.id,
-        item: selectedItem,
-        cantidad: moveData.cantidad,
-        proyectoDestino: moveData.proyectoDestino,
-        usuario: user?.email,
-        proyectoDestinoTitle: projects.find(p => p.id === moveData.proyectoDestino)?.title
-      });
-      
-      setMoveModalVisible(false);
-      setSelectedItem(null);
-      Alert.alert('Éxito', 'Movimiento realizado correctamente');
-    } catch (error) {
-      console.error('Error moviendo ítem:', error);
-      Alert.alert('Error', error.message || 'No se pudo mover el ítem');
-    } finally {
-      setActionLoading(false);
-    }
-  };
+      if (!matchSearch) return false;
 
-  const handleCloseModals = () => {
-    setModalVisible(false);
-    setMoveModalVisible(false);
-    setEditingItem(null);
-    setSelectedItem(null);
-  };
+      if (filterCategoria !== "Todos" && item.categoria !== filterCategoria)
+        return false;
 
-  // Filtrar Y ORDENAR items alfabéticamente
-  const filteredItems = items
-    .filter(item =>
-      item.nombre?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    // ORDENAR ALFABÉTICAMENTE ASCENDENTE (A-Z)
-    .sort((a, b) => a.nombre?.localeCompare(b.nombre));
+      if (filterUnidad !== "Todos" && item.tipo_medida !== filterUnidad)
+        return false;
+
+      if (showLowStock && !(item.minimo && item.cantidad < item.minimo))
+        return false;
+
+      if (showWithoutCode && item.codigo) return false;
+
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.categoria !== b.categoria)
+        return a.categoria.localeCompare(b.categoria);
+      if (a.nombre !== b.nombre)
+        return a.nombre.localeCompare(b.nombre);
+      return (a.codigo || "").localeCompare(b.codigo || "");
+    });
 
   return (
-    <LinearGradient colors={["#6a11cb", "#2575fc"]} style={styles.container}>
-      <Text style={styles.title}>Inventario General ({role})</Text>
-
-      {/* Mostrar loading general si está cargando */}
-      {actionLoading && (
-        <View style={styles.globalLoadingContainer}>
-          <ActivityIndicator size="large" color="#FFFFFF" />
-          <Text style={styles.globalLoadingText}>Procesando...</Text>
+    <View style={styles.container}>
+      {/* KPIs */}
+      <View style={styles.kpiRow}>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiNumber}>{totalItems}</Text>
+          <Text style={styles.kpiLabel}>Items</Text>
         </View>
+
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiNumber}>
+            ${totalValue.toLocaleString("es-CO")}
+          </Text>
+          <Text style={styles.kpiLabel}>Valor total</Text>
+        </View>
+
+        <View style={[styles.kpiCard, { borderColor: "#F87171" }]}>
+          <Text style={[styles.kpiNumber, { color: "#F87171" }]}>
+            {lowStockItems.length}
+          </Text>
+          <Text style={styles.kpiLabel}>Stock bajo</Text>
+        </View>
+      </View>
+
+      {/* Botón duplicados */}
+      {isAdmin && (
+        <TouchableOpacity
+          style={styles.dupBtn}
+          onPress={() => router.push("/DuplicateDetectorScreen")}
+        >
+          <Text style={styles.dupText}>Detectar duplicados</Text>
+        </TouchableOpacity>
       )}
 
+      {/* BUSCADOR */}
       <SearchHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        placeholder="Buscar producto..."
+        placeholder="Buscar por nombre, código o categoría..."
       />
 
-      {canEdit && (
-        <AddItemButton onPress={() => setModalVisible(true)} />
+      {/* FILTROS */}
+      <View style={styles.filters}>
+        {/* Categoría */}
+        <TouchableOpacity
+          style={styles.filterBtn}
+          onPress={() => {
+            const opts = [
+              "Todos",
+              "Accesorios",
+              "Paneles",
+              "Inversores",
+              "Estructura",
+              "Tuberia",
+              "Cableado",
+              "Electrico",
+              "Comunicaciones",
+            ];
+            const i = opts.indexOf(filterCategoria);
+            setFilterCategoria(opts[(i + 1) % opts.length]);
+          }}
+        >
+          <Text style={styles.filterText}>Categoría: {filterCategoria}</Text>
+        </TouchableOpacity>
+
+        {/* Unidad */}
+        <TouchableOpacity
+          style={styles.filterBtn}
+          onPress={() => {
+            const opts = ["Todos", "Unidad", "Metro"];
+            const i = opts.indexOf(filterUnidad);
+            setFilterUnidad(opts[(i + 1) % opts.length]);
+          }}
+        >
+          <Text style={styles.filterText}>Unidad: {filterUnidad}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* FILTROS ADMIN */}
+      {isAdmin && (
+        <View style={styles.adminFilters}>
+          <TouchableOpacity
+            style={[
+              styles.switchBtn,
+              showLowStock && styles.switchActive,
+            ]}
+            onPress={() => setShowLowStock(!showLowStock)}
+          >
+            <Text style={styles.switchText}>Stock bajo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.switchBtn,
+              showWithoutCode && styles.switchActive,
+            ]}
+            onPress={() => setShowWithoutCode(!showWithoutCode)}
+          >
+            <Text style={styles.switchText}>Sin código</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
-      <InventoryList
-        items={filteredItems}
-        loading={inventoryLoading}
-        onEditItem={handleEditItem}
-        onDeleteItem={handleDeleteItem}
-        onMoveItem={handleMoveItem}
-        canEdit={canEdit}
-        emptyMessage="No hay ítems en el inventario general"
-      />
+      {/* AGREGAR */}
+      {canEdit && <AddItemButton onPress={() => setAddEditVisible(true)} />}
 
-      {/* Modal Agregar/Editar Ítem */}
+      {/* LISTA DE ITEMS */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color="#FFF" />
+        </View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <InventoryItem
+              item={item}
+              canEdit={canEdit}
+              onEdit={() => handleEditItem(item)}
+              onDelete={() => handleDeleteItem(item)}
+              onMove={() => handleMoveItem(item)}
+            />
+          )}
+        />
+      )}
+
+      {/* MODALES */}
       <AddEditItemModal
-        visible={modalVisible}
-        editingItem={editingItem}
-        onSave={handleSaveItem}
-        onClose={handleCloseModals}
-        loading={actionLoading} // Pasar el estado de loading
+        visible={addEditVisible}
+        onClose={() => {
+          setAddEditVisible(false);
+          setEditingItem(null);
+        }}
+        item={editingItem}
+        onSaved={() => {}}
       />
 
-      {/* Modal Mover Ítem */}
       <MoveItemModal
         visible={moveModalVisible}
         selectedItem={selectedItem}
         projects={projects}
         onMove={handleMoveConfirm}
-        onClose={handleCloseModals}
-        loading={actionLoading} // Pasar el estado de loading
+        onClose={() => {
+          if (!actionLoading) {
+            setMoveModalVisible(false);
+            setSelectedItem(null);
+          }
+        }}
+        loading={actionLoading}
       />
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
+    backgroundColor: "#0F172A",
+    padding: 12,
+    paddingTop: 30,
   },
-  title: {
-    fontSize: 22,
-    color: '#FFF',
-    marginBottom: 16,
-    fontWeight: 'bold',
-    textAlign: 'center',
+  kpiRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
-  globalLoadingContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
+  kpiCard: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 10,
+    padding: 12,
+    flex: 1,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
   },
-  globalLoadingText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginTop: 12,
-    fontWeight: '500',
+  kpiNumber: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#FFF",
+  },
+  kpiLabel: {
+    fontSize: 11,
+    color: "#94A3B8",
+  },
+  filters: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginVertical: 8,
+  },
+  filterBtn: {
+    backgroundColor: "#1E293B",
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  filterText: {
+    color: "#E2E8F0",
+    fontSize: 13,
+  },
+  adminFilters: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  switchBtn: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: "#1E293B",
+    flex: 1,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  switchActive: {
+    backgroundColor: "#0EA5E9",
+    borderColor: "#0EA5E9",
+  },
+  switchText: {
+    textAlign: "center",
+    color: "#FFF",
+    fontSize: 12,
+  },
+  dupBtn: {
+    alignSelf: "flex-end",
+    backgroundColor: "#0EA5E9",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  dupText: {
+    color: "#F9FAFB",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  loadingContainer: {
+    marginTop: 50,
+    alignItems: "center",
   },
 });

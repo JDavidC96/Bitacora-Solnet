@@ -1,215 +1,150 @@
 // components/inventory/HistoryItem.js
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
-import { StyleSheet, Text, View } from 'react-native';
+// Tarjeta profesional para historial de movimientos
+
+import { StyleSheet, Text, View } from "react-native";
+
+// Íconos visuales por tipo de movimiento
+const typeIcons = {
+  entrada: "⬆️",              // entrada al inventario general
+  salida: "⬇️",               // salida del inventario general
+  movimiento: "📦",           // inventario general → proyecto
+  entrada_externa: "🛒",      // comprado directamente
+  uso: "🧰",                  // uso dentro del proyecto
+  devolucion: "↩️",           // proyecto → general
+  transferencia: "🔀",        // entre proyectos
+};
+
+// Colores por tipo (borde y título)
+const typeColors = {
+  entrada: "#22C55E",
+  salida: "#EF4444",
+  movimiento: "#3B82F6",
+  entrada_externa: "#0EA5E9",
+  uso: "#FACC15",
+  devolucion: "#14B8A6",
+  transferencia: "#A855F7",
+};
 
 export default function HistoryItem({ movement }) {
-  // Función para obtener el icono según el tipo
-  const getTypeIcon = (type) => {
-    switch (type) {
-      case 'entrada': return '📥';
-      case 'salida': return '📤';
-      case 'movimiento': return '🔄';
-      case 'edición': return '✏️';
-      default: return '📋';
-    }
-  };
+  const {
+    tipo,
+    material,
+    codigo,
+    cantidad,
+    unidad,
+    origen,
+    destino,
+    usuario,
+    notas,
+    timestamp,
+  } = movement;
 
-  // Función para obtener el color según el tipo
-  const getTypeColor = (type) => {
-    switch (type) {
-      case 'entrada': return '#38A169';
-      case 'salida': return '#E53E3E';
-      case 'movimiento': return '#3182CE';
-      case 'edición': return '#D69E2E';
-      default: return '#718096';
-    }
-  };
+  const icon = typeIcons[tipo] || "📄";
+  const color = typeColors[tipo] || "#64748B";
 
-  // Formatear fecha
-  const formatDate = (dateString) => {
-    try {
-      return format(new Date(dateString), "dd/MM/yyyy HH:mm", { locale: es });
-    } catch {
-      return 'Fecha inválida';
-    }
-  };
-
-  // Renderizar información específica según el tipo
-  const renderSpecificInfo = () => {
-    switch (movement.tipo) {
-      case 'edición':
-        return (
-          <View style={styles.specificInfo}>
-            <Text style={styles.specificText}>
-              <Text style={styles.label}>Cambio: </Text>
-              {movement.cantidadAnterior || 'N/A'} → {movement.cantidad}
-            </Text>
-            {movement.campoEditado && (
-              <Text style={styles.specificText}>
-                <Text style={styles.label}>Campo: </Text>
-                {movement.campoEditado}
-              </Text>
-            )}
-          </View>
-        );
-      
-      case 'entrada':
-        return (
-          <View style={styles.specificInfo}>
-            <Text style={styles.specificText}>
-              <Text style={styles.label}>Procedencia: </Text>
-              {movement.procedencia || movement.origen || 'N/A'}
-            </Text>
-          </View>
-        );
-      
-      case 'movimiento':
-        return (
-          <View style={styles.specificInfo}>
-            <Text style={styles.specificText}>
-              <Text style={styles.label}>De: </Text>
-              {movement.origen}
-            </Text>
-            <Text style={styles.specificText}>
-              <Text style={styles.label}>A: </Text>
-              {movement.destino}
-            </Text>
-          </View>
-        );
-      
-      default:
-        return (
-          <View style={styles.specificInfo}>
-            <Text style={styles.specificText}>
-              <Text style={styles.label}>Ubicación: </Text>
-              {movement.origen}
-            </Text>
-          </View>
-        );
-    }
-  };
+  const fecha = timestamp
+    ? new Date(timestamp?.toDate?.() || timestamp).toLocaleString()
+    : "—";
 
   return (
-    <View style={[styles.container, { borderLeftColor: getTypeColor(movement.tipo) }]}>
-      {/* Header con tipo y fecha */}
-      <View style={styles.header}>
-        <View style={styles.typeContainer}>
-          <Text style={styles.typeIcon}>{getTypeIcon(movement.tipo)}</Text>
-          <Text style={[styles.typeText, { color: getTypeColor(movement.tipo) }]}>
-            {movement.tipo?.toUpperCase()}
-          </Text>
-        </View>
-        <Text style={styles.date}>{formatDate(movement.fecha)}</Text>
+    <View style={[styles.card, { borderLeftColor: color }]}>
+      {/* Header con tipo + icono */}
+      <View style={styles.headerRow}>
+        <Text style={[styles.type, { color }]}>{icon} {tipo}</Text>
+        <Text style={styles.date}>{fecha}</Text>
       </View>
 
-      {/* Información principal */}
-      <View style={styles.mainInfo}>
-        <Text style={styles.material}>{movement.material}</Text>
-        <Text style={styles.quantity}>
-          Cantidad: <Text style={styles.quantityValue}>{movement.cantidad}</Text>
-        </Text>
-      </View>
+      {/* Material */}
+      <Text style={styles.material}>{material}</Text>
 
-      {/* Información específica según tipo */}
-      {renderSpecificInfo()}
+      {codigo ? (
+        <Text style={styles.code}>Código: {codigo}</Text>
+      ) : null}
 
-      {/* Información adicional */}
-      <View style={styles.additionalInfo}>
-        <Text style={styles.user}>
-          👤 {movement.usuario}
-        </Text>
-        {movement.notas && (
-          <Text style={styles.notes}>
-            📝 {movement.notas}
-          </Text>
-        )}
-      </View>
+      <Text style={styles.qty}>
+        Cantidad: <Text style={{ color: "#FFF" }}>{cantidad}</Text>{" "}
+        {unidad || ""}
+      </Text>
+
+      {/* Origen -> destino */}
+      <Text style={styles.route}>
+        {origen || "—"} <Text style={styles.arrow}>→</Text> {destino || "—"}
+      </Text>
+
+      {/* Usuario */}
+      <Text style={styles.user}>Usuario: {usuario || "—"}</Text>
+
+      {/* Notas */}
+      {notas ? <Text style={styles.notes}>📝 {notas}</Text> : null}
     </View>
   );
 }
 
+// =================== ESTILOS ===================
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    padding: 16,
-    borderRadius: 12,
+  card: {
+    backgroundColor: "#1E293B",
+    padding: 14,
+    borderRadius: 10,
     marginBottom: 12,
     borderLeftWidth: 4,
-    borderLeftColor: '#718096',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
   },
-  typeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+
+  type: {
+    fontSize: 15,
+    fontWeight: "700",
   },
-  typeIcon: {
-    fontSize: 16,
-    marginRight: 6,
-  },
-  typeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+
   date: {
+    color: "#94A3B8",
     fontSize: 12,
-    color: '#666',
   },
-  mainInfo: {
-    marginBottom: 8,
-  },
+
   material: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2D3748',
-    marginBottom: 4,
-  },
-  quantity: {
-    fontSize: 14,
-    color: '#4A5568',
-  },
-  quantityValue: {
-    fontWeight: 'bold',
-    color: '#2D3748',
-  },
-  specificInfo: {
-    backgroundColor: 'rgba(0,0,0,0.03)',
-    padding: 8,
-    borderRadius: 6,
-    marginBottom: 8,
-  },
-  specificText: {
-    fontSize: 12,
-    color: '#4A5568',
+    fontWeight: "700",
+    color: "#FFF",
     marginBottom: 2,
   },
-  label: {
-    fontWeight: 'bold',
-    color: '#2D3748',
-  },
-  additionalInfo: {
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    paddingTop: 8,
-  },
-  user: {
-    fontSize: 12,
-    color: '#718096',
+
+  code: {
+    color: "#93C5FD",
+    fontSize: 13,
     marginBottom: 4,
   },
+
+  qty: {
+    color: "#CBD5E1",
+    fontSize: 14,
+    marginBottom: 6,
+  },
+
+  route: {
+    color: "#E2E8F0",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+
+  arrow: {
+    color: "#64748B",
+  },
+
+  user: {
+    color: "#A5B4FC",
+    fontSize: 13,
+    marginBottom: 6,
+  },
+
   notes: {
-    fontSize: 12,
-    color: '#718096',
-    fontStyle: 'italic',
+    color: "#F8FAFC",
+    fontSize: 13,
+    fontStyle: "italic",
+    marginTop: 4,
   },
 });

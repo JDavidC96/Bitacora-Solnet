@@ -1,7 +1,7 @@
 // screens/HomeScreen.js
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,6 +31,10 @@ import EditProjectModal from '../components/home/EditProjectModal';
 import ProjectActionsModal from '../components/home/ProjectActionsModal';
 import ProjectList from '../components/home/ProjectList';
 import SearchModal from '../components/home/SearchModal';
+import FABMenu from '../components/shared/FABMenu';
+
+//Utils
+import formatPowerKw from '../utils/formatPower';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -58,6 +62,23 @@ export default function HomeScreen() {
 
   // Permisos
   const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+
+  // Total kW AC instalados (suma de todos los proyectos)
+  const totalKwAc = useMemo(() => {
+    const list = Array.isArray(projects) ? projects : [];
+    const total = list.reduce((acc, p) => {
+      const kw = Number(
+        p?.potenciaAcKw ??
+        p?.potenciaACKw ??
+        p?.potenciaAC ??
+        p?.potenciaAc ??
+        0
+      );
+      return acc + (isNaN(kw) ? 0 : kw);
+    }, 0);
+
+    return total;
+  }, [projects]);
 
   // ========== HANDLERS ==========
 
@@ -113,7 +134,6 @@ export default function HomeScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              
               // Verificar ID del proyecto
               const projectIdToDelete = selectedProject.idDoc || selectedProject.id;
               
@@ -163,8 +183,9 @@ export default function HomeScreen() {
         throw new Error('Persona no encontrada');
       }
 
-      // Usar el servicio directamente (sin import dinámico)
-      await personalService.assignToProject(persona.id, selectedProject.title);
+      await personalService.assignToProject(persona.id, {
+        id:selectedProject.id,
+        title:selectedProject.title});
       
       closeAllModals();
       setSelectedProject(null);
@@ -179,7 +200,7 @@ export default function HomeScreen() {
 
   const handleLiberarPersona = async (persona) => {
     if (!persona) return;
-    
+
     Alert.alert(
       'Liberar personal',
       `¿Liberar a ${persona.nombre} del proyecto?`,
@@ -189,7 +210,6 @@ export default function HomeScreen() {
           text: 'Liberar',
           onPress: async () => {
             try {
-              const { personalService } = await import('../services/personalService');
               await personalService.liberar(persona.id);
               Alert.alert('Éxito', `${persona.nombre} liberado del proyecto`);
             } catch (error) {
@@ -227,7 +247,6 @@ export default function HomeScreen() {
     );
   }
   
-
   return (
     <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
@@ -239,12 +258,33 @@ export default function HomeScreen() {
         />
 
         <View style={styles.container}>
-          <Text style={styles.title}>Proyectos Solares</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.title}>Proyectos Solares</Text>
+              <Text style={styles.subtitle}>
+                Gestión y seguimiento de instalaciones
+              </Text>
+
+              {/* NUEVO: total de kW AC sumados */}
+              <Text style={styles.kwTotal}>
+                ⚡ {formatPowerKw(totalKwAc, { suffix: "AC" })} instalados
+              </Text>
+            </View>
+
+            {user?.email && (
+              <View style={styles.userChip}>
+                <Text style={styles.userChipText}>
+                  {role || 'Usuario'}
+                </Text>
+              </View>
+            )}
+          </View>
 
           {/* Loading state */}
           {(projectsLoading || personalLoading) && (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#FF4500" />
+              <ActivityIndicator size="large" color="#FF7A00" />
               <Text style={styles.loadingText}>Cargando proyectos...</Text>
             </View>
           )}
@@ -263,31 +303,14 @@ export default function HomeScreen() {
 
           {/* Botones flotantes */}
           {canManage && !projectsLoading && (
-            <View style={styles.fabContainer}>
-              {/* Botón de proyectos completados */}
-              <TouchableOpacity
-                style={[styles.fab, styles.completedFab]}
-                onPress={() => router.push('/CompletedProjectsScreen')}
-              >
-                <Text style={styles.fabText}>✅</Text>
-              </TouchableOpacity>
-
-              {/* Botón de búsqueda */}
-              <TouchableOpacity
-                style={[styles.fab, styles.searchFab]}
-                onPress={() => openModal('search')}
-              >
-                <Text style={styles.fabText}>🔍</Text>
-              </TouchableOpacity>
-
-              {/* Botón de agregar proyecto */}
-              <TouchableOpacity
-                style={[styles.fab, styles.addFab]}
-                onPress={() => openModal('add')}
-              >
-                <Text style={styles.fabText}>+</Text>
-              </TouchableOpacity>
-            </View>
+            <FABMenu
+              showSearch={true}
+              showAdd={true}
+              showCompleted={true}
+              onAdd={() => openModal('add')}
+              onSearch={() => openModal('search')}
+              onCompleted={() => router.push('/CompletedProjectsScreen')}
+            />  
           )}
 
           {/* ========== MODALES ========== */}
@@ -355,90 +378,86 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 50,
+    paddingTop: 40,
     paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: 'rgba(255, 248, 242, 0.82)', // capa clara encima del gradiente
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   title: {
-    fontSize: 26,
-    color: '#000000',
-    marginBottom: 16,
-    textAlign: 'center',
-    fontWeight: 'bold',
+    fontSize: 24,
+    color: '#111827',
+    fontWeight: '800',
   },
-  fabContainer: {
-    position: "absolute",
-    right: 24,
-    bottom: 24,
-    alignItems: "center",
-    gap: 16,
+  subtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 4,
   },
-  fab: {
-    borderRadius: 30,
-    width: 60,
-    height: 60,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
+  kwTotal: {
+    fontSize: 13,
+    color: '#374151',
+    marginTop: 6,
+    fontWeight: '700',
   },
-  completedFab: {
-    backgroundColor: "#4CAF50", // Verde para completados
+  userChip: {
+    backgroundColor: '#111827',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  searchFab: {
-    backgroundColor: "#3182CE", // Azul para búsqueda
+  userChipText: {
+    color: '#F9FAFB',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  addFab: {
-    backgroundColor: "#ff7300", // Naranja para agregar
-  },
-  fabText: {
-    color: '#FFF',
-    fontSize: 28,
-    fontWeight: '900',
-    marginTop: -2,
-  },
+  
   bgImage: {
     position: "absolute",
-    width: 250,
-    height: 120,
-    marginTop: 390,
-    opacity: 0.4,
-    marginLeft: 85,
+    width: 260,
+    height: 130,
+    bottom: 40,
+    left: '50%',
+    marginLeft: -130,
+    opacity: 0.22,
   },
   loadingContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 20,
   },
   loadingText: {
     marginTop: 12,
-    color: '#000000',
-    fontSize: 16,
+    color: '#4B5563',
+    fontSize: 14,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1E1E2F',
+    backgroundColor: '#0F172A',
     padding: 20,
   },
   errorText: {
-    color: '#F56565',
+    color: '#F97373',
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
   },
   errorSubtext: {
-    color: '#CCC',
+    color: '#CBD5F5',
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: '#5A67D8',
+    backgroundColor: '#4F46E5',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,

@@ -9,21 +9,25 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
 
+    "fileSystem":{
+      "useLegacyImplementation": true
+    },
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.terrallsolnet.bitacoraapp",
       "sku": "bitacora-solnet-ios-2024",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "Esta app usa notificaciones para recordarte tus proyectos.",
         "UIBackgroundModes": ["remote-notification", "fetch"],
-        "NSCameraUsageDescription": "Se requiere acceso a la cámara para subir imágenes.",
-        "NSPhotoLibraryUsageDescription": "Se requiere acceso a la galería para subir imágenes.",
+        "NSCameraUsageDescription": "La app utiliza la cámara para capturar fotografías de instalaciones solares, equipos y avances del proyecto que se adjuntan como evidencia técnica.",
+        "NSPhotoLibraryUsageDescription": "La app accede a la galería para permitir seleccionar imágenes de instalaciones, materiales o documentos y adjuntarlos a los proyectos.",
         "ITSAppUsesNonExemptEncryption": false
       },
+
       "runtimeVersion": {
         "policy": "appVersion"
       },
-      "buildNumber": "1"       
+      "buildNumber": "3"       
     },
 
     "android": {

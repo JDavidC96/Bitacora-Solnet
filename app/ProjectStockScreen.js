@@ -1,354 +1,306 @@
-import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, View } from "react-native";
-import { useUser } from "../context/UserContext";
+// app/ProjectStockScreen.js — VERSIÓN FINAL COMPLETA
 
-// Hooks
-import { useInventoryModals } from "../hooks/useInventoryModals";
-import { useInventoryPermissions } from "../hooks/useInventoryPermissions";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+import { useLocalSearchParams } from "expo-router";
+
+import { useUser } from "../context/UserContext";
 import { useProjectInventory } from "../hooks/useProjectInventory";
 import { useProjects } from "../hooks/useProjects";
 
-// Componentes
+// COMPONENTES DEL INVENTARIO DEL PROYECTO
+import AddExternalMaterialModal from "../components/inventory/project/AddExternalMaterialModal";
 import AddMaterialButton from "../components/inventory/project/AddMaterialButton";
+import AddMaterialModal from "../components/inventory/project/AddMaterialModal";
 import EmptyInventory from "../components/inventory/project/EmptyInventory";
 import MaterialItem from "../components/inventory/project/MaterialItem";
-import SearchHeader from "../components/inventory/SearchHeader";
-
-// Modales
-import AddMaterialModal from "../components/inventory/project/AddMaterialModal";
 import MoveMaterialModal from "../components/inventory/project/MoveMaterialModal";
 import UpdateUsageModal from "../components/inventory/project/UpdateUsageModal";
 
-// Servicios
+// SERVICIO
 import { inventoryService } from "../services/inventoryService";
 
 export default function ProjectStockScreen() {
-  const params = useLocalSearchParams();
+  const { projectId, title } = useLocalSearchParams();
+  const { projects } = useProjects();
   const { role, user } = useUser();
 
-  // Procesar parámetros correctamente
-  const [processedParams, setProcessedParams] = useState({ projectId: null, title: '' });
-  const prevParamsRef = useRef();
+  // ==================== INVENTARIO EN TIEMPO REAL ====================
+  const { projectItems: rawItems, loading } = useProjectInventory(projectId);
+  const projectItems = rawItems || [];
 
-  useEffect(() => {
-    // Evitar procesamiento si los parámetros no han cambiado
-    const paramsString = JSON.stringify(params);
-    if (prevParamsRef.current === paramsString) {
-      return;
-    }
-    
-    prevParamsRef.current = paramsString;
-    
-    console.log('🔍 ProjectStockScreen - Parámetros recibidos:', params);
-    
-    // Buscar projectId en diferentes propiedades
-    const projectId = Array.isArray(params.projectId) ? params.projectId[0] : params.projectId;
-    const id = Array.isArray(params.id) ? params.id[0] : params.id;
-    const title = Array.isArray(params.title) ? params.title[0] : params.title;
-    
-    // Usar projectId primero, si no está usar id
-    const finalProjectId = projectId || id;
-    
-    setProcessedParams({
-      projectId: finalProjectId && finalProjectId !== 'undefined' ? finalProjectId : null,
-      title: title || 'Proyecto sin nombre'
-    });
-  }, [params]);
+  // ==================== PERMISOS ====================
+  const canAddMaterial = ["Administrador", "Administrativo", "Ingeniero", "Supervisor"].includes(role);
+  const canEditUsage = ["Administrador", "Ingeniero", "Supervisor", "Tecnico"].includes(role);
 
-  // Estados
-  const [searchQuery, setSearchQuery] = useState("");
-  const [globalLoading, setGlobalLoading] = useState(false); // Nuevo estado para loading global
+  // ==================== ESTADOS DE MODALES ====================
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [usageModalVisible, setUsageModalVisible] = useState(false);
+  const [moveModalVisible, setMoveModalVisible] = useState(false);
+  const [externalModalVisible, setExternalModalVisible] = useState(false);
 
-  // Hooks personalizados - usar processedParams.projectId
-  const { items, loading: inventoryLoading, error: inventoryError } = useProjectInventory(processedParams.projectId);
-  const { projects: proyectos, loading: projectsLoading } = useProjects();
-  const { canAdd, canMove } = useInventoryPermissions(role);
-  const {
-    selectedItem,
-    loading: modalLoading,
-    setLoading: setModalLoading,
-    modals,
-    openUpdateModal,
-    openMoveModal,
-    openAddModal,
-    closeAll,
-    closeModal
-  } = useInventoryModals();
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  // Función para registrar en el historial
-  const registerHistory = async (movementData) => {
+  // ============================================================================
+  // 1) AGREGAR MATERIAL DESDE INVENTARIO GENERAL
+  // ============================================================================
+  const handleAddMaterial = async ({ material, cantidad }) => {
     try {
-      await inventoryService.registerMovement({
-        ...movementData,
+      setActionLoading(true);
+
+      await inventoryService.assignToProjectWithHistory({
+        projectId,
+        material,
+        cantidad,
         usuario: user?.email,
-        fecha: new Date().toISOString()
+        proyectoTitle: title,
       });
+
+      setAddModalVisible(false);
+      setSelectedItem(null);
     } catch (error) {
-      console.error('Error registrando en historial:', error);
-    }
-  };
-
-  // Filtrado, deduplicación Y ORDENAMIENTO ALFABÉTICO
-  const filteredItems = items
-    .filter((item) =>
-      item.nombre?.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    // ORDENAR ALFABÉTICAMENTE ASCENDENTE (A-Z)
-    .sort((a, b) => a.nombre?.localeCompare(b.nombre));
-
-  const dedupedItems = Array.from(new Map(filteredItems.map((i) => [i.idDoc, i])).values());
-
-  // Handlers para los modales que registran en historial
-  const handleAddMaterial = async (materialData) => {
-    setModalLoading(true);
-    setGlobalLoading(true); // Activar loading global
-    try {
-      // Agregar material al proyecto
-      await inventoryService.addProjectMaterial(processedParams.projectId, materialData);
-      
-      // Registrar en historial
-      await registerHistory({
-        material: materialData.nombre,
-        tipo: 'entrada',
-        cantidad: materialData.cantidad,
-        origen: 'Inventario General',
-        destino: processedParams.title,
-        notas: 'Agregado directamente al proyecto'
-      });
-      
-      closeModal('add');
-      Alert.alert('Éxito', 'Material agregado correctamente');
-    } catch (error) {
-      console.error('Error agregando material:', error);
-      Alert.alert('Error', 'No se pudo agregar el material');
+      console.error(error);
+      Alert.alert("Error", error.message || "No se pudo agregar el material.");
     } finally {
-      setModalLoading(false);
-      setGlobalLoading(false); // Desactivar loading global
+      setActionLoading(false);
     }
   };
 
-  const handleUpdateUsage = async (updateData) => {
-    setModalLoading(true);
-    setGlobalLoading(true); // Activar loading global
+  // ============================================================================
+  // 2) AGREGAR MATERIAL EXTERNO
+  // ============================================================================
+  const handleAddExternal = async ({ material, cantidad }) => {
     try {
-      // Actualizar uso del material
-      await inventoryService.updateMaterialUsage(
-        processedParams.projectId,
-        selectedItem.idDoc,
-        updateData
-      );
-      
-      // Registrar en historial
-      await registerHistory({
-        material: selectedItem.nombre,
-        tipo: 'salida',
-        cantidad: updateData.cantidadUsada,
-        origen: processedParams.title,
-        destino: 'Uso en proyecto',
-        notas: updateData.notas || 'Material utilizado'
+      setActionLoading(true);
+
+      await inventoryService.agregarMaterialExternoAProyecto({
+        projectId,
+        material,
+        cantidad,
+        usuario: user.email,
+        proyectoTitle: title,
       });
-      
-      closeModal('update');
-      Alert.alert('Éxito', 'Uso actualizado correctamente');
+
+      setExternalModalVisible(false);
     } catch (error) {
-      console.error('Error actualizando uso:', error);
-      Alert.alert('Error', 'No se pudo actualizar el uso');
+      Alert.alert("Error", error.message || "No se pudo registrar el material externo.");
     } finally {
-      setModalLoading(false);
-      setGlobalLoading(false); // Desactivar loading global
+      setActionLoading(false);
     }
   };
 
-  const handleMoveMaterial = async (moveData) => {
-    setModalLoading(true);
-    setGlobalLoading(true); // Activar loading global
+  // ============================================================================
+  // 3) REGISTRAR USO DE MATERIAL
+  // ============================================================================
+  const handleUpdateUsage = async ({ cantidad }) => {
     try {
-      // Mover material
-      await inventoryService.moveMaterial(
-        processedParams.projectId,
-        selectedItem.idDoc,
-        moveData
-      );
-      
-      // Registrar en historial
-      const proyectoDestino = proyectos.find(p => p.id === moveData.proyectoDestino)?.title;
-      
-      await registerHistory({
-        material: selectedItem.nombre,
-        tipo: 'movimiento',
-        cantidad: moveData.cantidad,
-        origen: processedParams.title,
-        destino: proyectoDestino || 'Proyecto destino',
-        notas: 'Transferencia entre proyectos'
+      setActionLoading(true);
+
+      await inventoryService.updateProjectUsage({
+        projectId,
+        item: selectedItem,
+        usedAmount: cantidad,
+        usuario: user?.email,
+        proyectoTitle: title,
       });
-      
-      closeModal('move');
-      Alert.alert('Éxito', 'Material movido correctamente');
+
+      setUsageModalVisible(false);
+      setSelectedItem(null);
     } catch (error) {
-      console.error('Error moviendo material:', error);
-      Alert.alert('Error', 'No se pudo mover el material');
+      Alert.alert("Error", error.message || "No se pudo registrar el uso.");
     } finally {
-      setModalLoading(false);
-      setGlobalLoading(false); // Desactivar loading global
+      setActionLoading(false);
     }
   };
 
-  // Mostrar loading si no hay projectId válido
-  if (!processedParams.projectId) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>No se pudo cargar el inventario</Text>
-        <Text style={styles.debugText}>
-          ProjectId recibido: {processedParams.projectId}
-        </Text>
-        <Text style={styles.debugText}>
-          Parámetros: {JSON.stringify(params)}
-        </Text>
-      </View>
-    );
-  }
+  // ============================================================================
+  // 4) DEVOLVER MATERIAL AL INVENTARIO GENERAL
+  // ============================================================================
+  const handleReturnMaterial = async ({ cantidad }) => {
+    try {
+      setActionLoading(true);
 
+      await inventoryService.returnMaterialToGeneral({
+        projectId,
+        item: selectedItem,
+        cantidad,
+        usuario: user?.email,
+        proyectoTitle: title,
+      });
+
+      setMoveModalVisible(false);
+      setSelectedItem(null);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo devolver el material.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ============================================================================
+  // 5) TRANSFERIR MATERIAL ENTRE PROYECTOS
+  // ============================================================================
+  const handleTransferMaterial = async ({ cantidad, proyectoDestino }) => {
+    try {
+      setActionLoading(true);
+
+      await inventoryService.transferBetweenProjects({
+        origenId: projectId,
+        destinoId: proyectoDestino,
+        item: selectedItem,
+        cantidad,
+        usuario: user?.email,
+        origenTitle: title,
+        destinoTitle: projects.find((p) => p.id === proyectoDestino)?.title || "",
+      });
+
+      setMoveModalVisible(false);
+      setSelectedItem(null);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo transferir material.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ============================================================================
+  // CERRAR TODOS LOS MODALES
+  // ============================================================================
+  const handleCloseModals = () => {
+    if (actionLoading) return;
+    setAddModalVisible(false);
+    setUsageModalVisible(false);
+    setMoveModalVisible(false);
+    setExternalModalVisible(false);
+    setSelectedItem(null);
+  };
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
   return (
-    <LinearGradient colors={["#38A169", "#48BB78", "#81E6D9"]} style={{ flex: 1 }}>
-      <View style={styles.container}>
-        <Text style={styles.title}>📦 Inventario de {processedParams.title}</Text>
-        <Text style={styles.subtitle}>ID: {processedParams.projectId}</Text>
+    <View style={styles.container}>
+      <Text style={styles.projectTitle}>{title}</Text>
 
-        {/* Loading global overlay */}
-        {globalLoading && (
-          <View style={styles.globalLoadingContainer}>
-            <ActivityIndicator size="large" color="#FFFFFF" />
-            <Text style={styles.globalLoadingText}>Procesando...</Text>
-          </View>
-        )}
+      {/* BOTÓN: AGREGAR MATERIAL EXTERNO */}
+      {canAddMaterial && (
+        <TouchableOpacity
+          style={styles.externalBtn}
+          onPress={() => setExternalModalVisible(true)}
+        >
+          <Text style={styles.externalBtnText}>+ Material Externo</Text>
+        </TouchableOpacity>
+      )}
 
-        <SearchHeader
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          placeholder="Buscar material..."
+      {/* BOTÓN: AGREGAR MATERIAL DESDE INVENTARIO GENERAL */}
+      {canAddMaterial && (
+        <AddMaterialButton onPress={() => setAddModalVisible(true)} />
+      )}
+
+      {/* INVENTARIO */}
+      {loading ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator color="#FFF" />
+        </View>
+      ) : projectItems.length === 0 ? (
+        <EmptyInventory />
+      ) : (
+        <FlatList
+          data={projectItems}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <MaterialItem
+              item={item}
+              canUse={canEditUsage}
+              onUse={() => {
+                setSelectedItem(item);
+                setUsageModalVisible(true);
+              }}
+              onReturn={() => {
+                setSelectedItem(item);
+                setMoveModalVisible(true);
+              }}
+            />
+          )}
         />
+      )}
 
-        {canAdd && (
-          <AddMaterialButton onPress={openAddModal} />
-        )}
+      {/* ==================== MODALES ==================== */}
 
-        {inventoryLoading ? (
-          <Text style={styles.empty}>Cargando inventario...</Text>
-        ) : dedupedItems.length === 0 ? (
-          <EmptyInventory />
-        ) : (
-          <FlatList
-            data={dedupedItems}
-            keyExtractor={(item) => String(item.idDoc)}
-            renderItem={({ item }) => (
-              <MaterialItem
-                item={item}
-                onUpdate={openUpdateModal}
-                onMove={openMoveModal}
-                canMove={canMove}
-              />
-            )}
-          />
-        )}
-      </View>
+      <AddMaterialModal
+        visible={addModalVisible}
+        onClose={handleCloseModals}
+        onAdd={handleAddMaterial}
+        loading={actionLoading}
+      />
 
-      {/* Modales - pasar processedParams.projectId y handlers actualizados */}
+      <AddExternalMaterialModal
+        visible={externalModalVisible}
+        onClose={handleCloseModals}
+        onAdd={handleAddExternal}
+        loading={actionLoading}
+      />
+
       <UpdateUsageModal
-        visible={modals.update}
-        onClose={() => closeModal('update')}
-        selectedItem={selectedItem}
-        projectId={processedParams.projectId}
-        user={user}
-        loading={modalLoading}
-        setLoading={setModalLoading}
-        onSave={handleUpdateUsage}
+        visible={usageModalVisible}
+        onClose={handleCloseModals}
+        item={selectedItem}
+        onUpdate={handleUpdateUsage}
+        loading={actionLoading}
       />
 
       <MoveMaterialModal
-        visible={modals.move}
-        onClose={() => closeModal('move')}
-        selectedItem={selectedItem}
-        projectId={processedParams.projectId}
-        role={role}
-        proyectos={proyectos}
-        loading={modalLoading}
-        setLoading={setModalLoading}
-        onMove={handleMoveMaterial}
+        visible={moveModalVisible}
+        onClose={handleCloseModals}
+        item={selectedItem}
+        onReturn={handleReturnMaterial}
+        onTransfer={handleTransferMaterial}
+        projects={projects}
+        currentProjectId={projectId}
+        loading={actionLoading}
       />
-
-      <AddMaterialModal
-        visible={modals.add}
-        onClose={() => closeModal('add')}
-        projectId={processedParams.projectId}
-        user={user}
-        loading={modalLoading}
-        setLoading={setModalLoading}
-        onSave={handleAddMaterial}
-      />
-    </LinearGradient>
+    </View>
   );
 }
 
+// ==================== ESTILOS ====================
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    padding: 16 
-  },
-  loadingContainer: {
+  container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1E1E2F',
-    padding: 20,
+    backgroundColor: "#0F172A",
+    padding: 14,
+    paddingTop: 28,
   },
-  errorText: {
-    color: '#F56565',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  debugText: {
-    color: '#CCC',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  title: { 
-    color: "#FFF", 
-    fontSize: 20, 
-    marginBottom: 8, 
-    fontWeight: "bold",
-    textAlign: "center" 
-  },
-  subtitle: {
-    color: "#E2E8F0",
-    fontSize: 14,
+  projectTitle: {
+    color: "#F8FAFC",
+    fontSize: 20,
+    fontWeight: "700",
     marginBottom: 16,
     textAlign: "center",
   },
-  empty: { 
-    color: "#888", 
-    textAlign: "center", 
-    marginTop: 20 
+  loadingBox: {
+    marginTop: 40,
+    alignItems: "center",
   },
-  globalLoadingContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
+  externalBtn: {
+    backgroundColor: "#10B981",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
   },
-  globalLoadingText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    marginTop: 12,
-    fontWeight: '500',
+  externalBtnText: {
+    color: "#FFF",
+    textAlign: "center",
+    fontWeight: "700",
   },
 });

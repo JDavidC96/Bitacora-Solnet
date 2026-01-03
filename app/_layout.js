@@ -60,7 +60,7 @@ function RootDrawer() {
   const router = useRouter();
   const segments = useSegments();
   const { user, loading } = useUser();
-  const { canProrrogaRole } = usePermissions();
+  const { canProrrogaRole, canAdministrativosRole, canIngenerioRole } = usePermissions();
 
   // Manejar clicks en notificaciones
   useEffect(() => {
@@ -207,7 +207,68 @@ function RootDrawer() {
       />
 
       <Drawer.Screen
+        name="BudgetScreen"
+        options={{
+          title: "Pantalla de Presupuesto",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="BudgetStatScreen"
+        options={{
+          title: "Estadísticas de Presupuesto",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="BudgetVsRealScreen"
+        options={{
+          title: "Presupuesto vs Real",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="RegistroLaboralScreen"
+        options={{
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="RealExpensesScreen"
+        options={{
+          title: "Gastos Reales",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="DuplicateDetectorScreen"
+        options={{
+          title: "Encontrar Duplicados",
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
         name="index"
+        options={{
+          headerShown: false,
+          drawerItemStyle: { display: "none" },
+        }}
+      />
+
+      <Drawer.Screen
+        name="ReporteGeneralScreen"
         options={{
           headerShown: false,
           drawerItemStyle: { display: "none" },
@@ -279,6 +340,17 @@ function RootDrawer() {
       />
 
       <Drawer.Screen
+        name="CompletedProjectsScreen"
+        options={{ 
+          title: "Proyectos Completados",
+          headerStyle: {
+            backgroundColor: '#38A169',
+          },
+          headerTintColor: '#fff',
+        }}
+      />
+
+      <Drawer.Screen
         name="EquipmentStockScreen"
         options={{ 
           title: "Inventario de Herramientas",
@@ -288,6 +360,19 @@ function RootDrawer() {
           headerTintColor: '#fff',
         }}
       />
+
+      <Drawer.Screen
+  name="HorariosScreen"
+  options={{ 
+    title: "Horarios",
+    headerStyle: {
+      backgroundColor: '#2D3748',
+    },
+    headerTintColor: '#fff',
+    drawerItemStyle: canIngenerioRole ? {} : { display: "none" }
+  }}
+/>
+
 
       <Drawer.Screen
         name="NoteScreen"
@@ -354,6 +439,7 @@ function RootDrawer() {
         }}
       />
 
+
       <Drawer.Screen
         name="ImageViewerScreen"
         options={{
@@ -361,6 +447,18 @@ function RootDrawer() {
           headerShown: false,
           drawerItemStyle: { display: "none" },
         }}
+      />
+
+      <Drawer.Screen 
+        name="TarifasManoObraScreen" 
+        options={{ 
+          title: "Tarifas de Mano de Obra",
+          headerStyle: {
+            backgroundColor: '#03490dff',
+          },
+          headerTintColor: '#fff',
+          drawerItemStyle: canAdministrativosRole ? {} : { display: "none" }
+        }} 
       />
 
       <Drawer.Screen

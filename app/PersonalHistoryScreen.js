@@ -1,54 +1,72 @@
+// app/PersonalHistoryScreen.js
 import { LinearGradient } from "expo-linear-gradient";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
 import { db } from "../firebase/firebaseConfig";
 
 export default function PersonalHistoryScreen() {
   const [historial, setHistorial] = useState([]);
-  const [filteredData, setFilteredData] = useState([]);
   const [search, setSearch] = useState("");
 
+  /* =====================================================
+   * LISTENER HISTORIAL (MODELO NUEVO)
+   * ===================================================== */
   useEffect(() => {
     const q = query(
       collection(db, "historial_personal"),
       orderBy("fechaInicio", "desc")
     );
+
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const data = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
       setHistorial(data);
-      setFilteredData(data);
     });
+
     return () => unsub();
   }, []);
 
-  const handleSearch = (text) => {
-    setSearch(text);
-    if (text.trim() === "") {
-      setFilteredData(historial);
-    } else {
-      const filtered = historial.filter(
-        (item) =>
-          item.nombre.toLowerCase().includes(text.toLowerCase()) ||
-          item.destino.toLowerCase().includes(text.toLowerCase())
-      );
-      setFilteredData(filtered);
-    }
-  };
+  /* =====================================================
+   * FILTRO
+   * ===================================================== */
+  const filteredData = useMemo(() => {
+    if (!search.trim()) return historial;
 
+    const q = search.toLowerCase();
+    return historial.filter(
+      (item) =>
+        item.nombre?.toLowerCase().includes(q) ||
+        item.destino?.toLowerCase().includes(q)
+    );
+  }, [historial, search]);
+
+  /* =====================================================
+   * RENDER ITEM
+   * ===================================================== */
   const renderItem = ({ item }) => (
     <View style={styles.card}>
-      <Text style={styles.destino}>👤 {item.nombre}</Text>
-      <Text style={styles.destino}>📍 {item.destino}</Text>
-      <Text style={styles.fechas}>
-        Inicio: {new Date(item.fechaInicio).toLocaleString()}
+      <Text style={styles.title}>👤 {item.nombre}</Text>
+      <Text style={styles.subtitle}>📍 {item.destino}</Text>
+
+      <Text style={styles.date}>
+        Inicio:{" "}
+        {new Date(item.fechaInicio).toLocaleString("es-CO", {
+          timeZone: "America/Bogota",
+        })}
       </Text>
+
       {item.fechaFin ? (
-        <Text style={styles.fechas}>
-          Fin: {new Date(item.fechaFin).toLocaleString()}
+        <Text style={styles.date}>
+          Fin:{" "}
+          {new Date(item.fechaFin).toLocaleString("es-CO", {
+            timeZone: "America/Bogota",
+          })}
         </Text>
       ) : (
-        <Text style={[styles.fechas, { color: "orange" }]}>
+        <Text style={[styles.date, styles.inProgress]}>
           ⏳ En curso
         </Text>
       )}
@@ -57,15 +75,14 @@ export default function PersonalHistoryScreen() {
 
   return (
     <LinearGradient colors={["#4e54c8", "#8f94fb"]} style={styles.container}>
-      <Text style={styles.title}>Historial General</Text>
+      <Text style={styles.header}>Historial General</Text>
 
-      {/* Barra de búsqueda */}
       <TextInput
         style={styles.searchBar}
         placeholder="Buscar por nombre o destino..."
         placeholderTextColor="#AAA"
         value={search}
-        onChangeText={handleSearch}
+        onChangeText={setSearch}
       />
 
       <FlatList
@@ -73,9 +90,7 @@ export default function PersonalHistoryScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         ListEmptyComponent={
-          <Text style={{ color: "#FFF", textAlign: "center", marginTop: 20 }}>
-            No hay historial registrado.
-          </Text>
+          <Text style={styles.empty}>No hay historial registrado.</Text>
         }
       />
     </LinearGradient>
@@ -84,7 +99,7 @@ export default function PersonalHistoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
-  title: {
+  header: {
     fontSize: 22,
     color: "#FFF",
     fontWeight: "bold",
@@ -106,6 +121,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 12,
   },
-  destino: { color: "#FFF", fontSize: 16, fontWeight: "600" },
-  fechas: { color: "#CCC", marginTop: 4 },
+  title: { color: "#FFF", fontSize: 16, fontWeight: "700" },
+  subtitle: { color: "#D1D5DB", marginTop: 2 },
+  date: { color: "#E5E7EB", marginTop: 6 },
+  inProgress: { color: "#FBBF24", fontWeight: "600" },
+  empty: { color: "#FFF", textAlign: "center", marginTop: 20 },
 });

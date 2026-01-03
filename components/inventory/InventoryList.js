@@ -35,7 +35,7 @@ export default function InventoryList({
         <InventoryItem
           item={item}
           onEdit={() => onEditItem(item)}
-          onDelete={() => onDeleteItem(item.id, item)} // ✅ Pasar item completo
+          onDelete={() => onDeleteItem(item.id, item)} // Pasar item completo
           onMove={() => onMoveItem(item)}
           canEdit={canEdit}
         />
