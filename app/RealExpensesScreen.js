@@ -17,10 +17,11 @@ import { useUser } from "../context/UserContext";
 import { db } from "../firebase/firebaseConfig";
 import { realExpensesService } from "../services/realExpensesService";
 
-// Quitamos material externo: ya no se importa ni se usa
-// import AddMaterialModal from "../components/realExpenses/AddMaterialModal";
 import AddTramiteModal from "../components/realExpenses/AddTramiteModal";
 import AddViaticoModal from "../components/realExpenses/AddViaticoModal";
+
+// ✅ NUEVO: util de export
+import { exportRealExpensesPhaseReport } from "../utils/exportRealExpensesPhaseReport";
 
 function formatCurrency(value) {
   const num = Number(value) || 0;
@@ -71,9 +72,7 @@ function ExpenseItemCard({ item, type, expanded, onToggle }) {
   switch (type) {
     case "material": {
       title = item.nombre || "Material";
-
       const unit = item.precioUnitario ?? item.costoUnitario ?? item.precio ?? 0;
-
       amount = item.total ?? (Number(unit) * Number(item.cantidad || 0)) ?? 0;
 
       subtitle = `Cant: ${item.cantidad || 0} · C. unit: ${formatCurrency(unit)}`;
@@ -121,7 +120,6 @@ function ExpenseItemCard({ item, type, expanded, onToggle }) {
       const factor = Number(item.extraFactor || 1.25);
 
       subtitle = `Horas: ${th} (Norm: ${hn} / Extra: ${he})`;
-
       extraLines = [`Factor horas extra: x${factor}`];
       break;
     }
@@ -130,7 +128,9 @@ function ExpenseItemCard({ item, type, expanded, onToggle }) {
       title = "Gasto";
       amount = item.total || item.valor || 0;
       subtitle = "";
-      extraLines = [fecha ? `Fecha: ${new Date(fecha).toLocaleDateString()}` : null];
+      extraLines = [
+        fecha ? `Fecha: ${new Date(fecha).toLocaleDateString()}` : null,
+      ];
   }
 
   return (
@@ -179,7 +179,7 @@ export default function RealExpensesScreen() {
   const [loading, setLoading] = useState(true);
 
   const canSeeAll = ["Administrador", "Administrativo"].includes(role);
-  const canSeePhase3 = canSeeAll || role === "Supervisor"; // ✅ FIX REAL
+  const canSeePhase3 = canSeeAll || role === "Supervisor";
 
   const [expandedPhase, setExpandedPhase] = useState(() => ({
     fase1: canSeeAll ? true : false,
@@ -211,7 +211,6 @@ export default function RealExpensesScreen() {
     loadData();
   }, [projectId]);
 
-  // RECARGAR AL VOLVER A ESTA PANTALLA (sin cerrar la app)
   useFocusEffect(
     useCallback(() => {
       if (projectId) loadData();
@@ -236,11 +235,7 @@ export default function RealExpensesScreen() {
       extraFactor: Number(data.extraFactor || 1.25),
     };
 
-    const fase3 = [
-      ...data.viaticos,
-      manoObraSummary, 
-    ];
-
+    const fase3 = [...data.viaticos, manoObraSummary];
     const fase4 = data.tramites || [];
 
     if (!canSeeAll) return { fase1: [], fase2: [], fase3, fase4: [] };
@@ -249,6 +244,64 @@ export default function RealExpensesScreen() {
 
   const toggleItem = (key) => {
     setExpandedItems((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // ✅ Totales por fase (para el reporte)
+  const computePhaseTotals = (phaseKey) => {
+    const items = groupedByPhase[phaseKey] || [];
+
+    let materiales = 0;
+    let viaticos = 0;
+    let tramites = 0;
+    let manoObra = 0;
+
+    for (const item of items) {
+      const tipo = item.tipo;
+
+      if (tipo === "material") {
+        const unit = Number(
+          item.precioUnitario ?? item.costoUnitario ?? item.precio ?? 0
+        );
+        const qty = Number(item.cantidad || 0);
+        materiales += Number(item.total ?? unit * qty ?? 0);
+      } else if (tipo === "viatico") {
+        viaticos += Number(item.valor || 0);
+      } else if (tipo === "tramite") {
+        tramites += Number(item.valor || 0);
+      } else if (tipo === "manoObra") {
+        manoObra += Number(item.total || 0);
+      }
+    }
+
+    return {
+      materiales,
+      viaticos,
+      tramites,
+      manoObra,
+      totalFase: materiales + viaticos + tramites + manoObra,
+    };
+  };
+
+  // ✅ Export por fase usando util
+  const handleExportPhase = async (phaseKey) => {
+    try {
+      const totals = computePhaseTotals(phaseKey);
+      const items = groupedByPhase[phaseKey] || [];
+
+      const res = await exportRealExpensesPhaseReport({
+        phaseKey,
+        projectTitle: title || "",
+        items,
+        totals,
+      });
+
+      if (!res.ok) {
+        Alert.alert("Error", res.message || "No se pudo exportar el reporte.");
+      }
+    } catch (err) {
+      console.error("Error exportando fase:", err);
+      Alert.alert("Error", "No se pudo exportar el reporte.");
+    }
   };
 
   const handleAddViatico = async (form) => {
@@ -333,6 +386,13 @@ export default function RealExpensesScreen() {
                 setExpandedPhase((prev) => ({ ...prev, fase1: !prev.fase1 }))
               }
             >
+              <TouchableOpacity
+                style={styles.reportButton}
+                onPress={() => handleExportPhase("fase1")}
+              >
+                <Text style={styles.reportButtonText}>📄 Reporte Fase 1</Text>
+              </TouchableOpacity>
+
               {groupedByPhase.fase1.length === 0 ? (
                 <Text style={styles.emptyText}>Sin gastos registrados.</Text>
               ) : (
@@ -362,6 +422,13 @@ export default function RealExpensesScreen() {
                 setExpandedPhase((prev) => ({ ...prev, fase2: !prev.fase2 }))
               }
             >
+              <TouchableOpacity
+                style={styles.reportButton}
+                onPress={() => handleExportPhase("fase2")}
+              >
+                <Text style={styles.reportButtonText}>📄 Reporte Fase 2</Text>
+              </TouchableOpacity>
+
               {groupedByPhase.fase2.length === 0 ? (
                 <Text style={styles.emptyText}>Sin gastos registrados.</Text>
               ) : (
@@ -391,6 +458,13 @@ export default function RealExpensesScreen() {
                 setExpandedPhase((prev) => ({ ...prev, fase3: !prev.fase3 }))
               }
             >
+              <TouchableOpacity
+                style={styles.reportButton}
+                onPress={() => handleExportPhase("fase3")}
+              >
+                <Text style={styles.reportButtonText}>📄 Reporte Fase 3</Text>
+              </TouchableOpacity>
+
               {groupedByPhase.fase3.length === 0 ? (
                 <Text style={styles.emptyText}>Sin gastos registrados.</Text>
               ) : (
@@ -421,6 +495,13 @@ export default function RealExpensesScreen() {
                 setExpandedPhase((prev) => ({ ...prev, fase4: !prev.fase4 }))
               }
             >
+              <TouchableOpacity
+                style={styles.reportButton}
+                onPress={() => handleExportPhase("fase4")}
+              >
+                <Text style={styles.reportButtonText}>📄 Reporte Fase 4</Text>
+              </TouchableOpacity>
+
               {groupedByPhase.fase4.length === 0 ? (
                 <Text style={styles.emptyText}>Sin gastos registrados.</Text>
               ) : (
@@ -506,26 +587,26 @@ export default function RealExpensesScreen() {
         <TouchableOpacity
           style={styles.fabButton}
           onPress={() => {
-  const options = [
-    { text: "Viático", onPress: () => setShowViaticoModal(true) },
-  ];
+            const options = [
+              { text: "Viático", onPress: () => setShowViaticoModal(true) },
+            ];
 
-  if (["Administrador", "Administrativo", "Ingeniero"].includes(role)) {
-    options.push({
-      text: "Trámite",
-      onPress: () => setShowTramiteModal(true),
-    });
-  }
+            // ✅ Trámite solo Admin/Administrativo/Ingeniero
+            if (["Administrador", "Administrativo", "Ingeniero"].includes(role)) {
+              options.push({
+                text: "Trámite",
+                onPress: () => setShowTramiteModal(true),
+              });
+            }
 
-  options.push({ text: "Cancelar", style: "cancel" });
+            options.push({ text: "Cancelar", style: "cancel" });
 
-  Alert.alert(
-    "Agregar gasto",
-    "¿Qué tipo de gasto deseas agregar?",
-    options
-  );
-}}
-
+            Alert.alert(
+              "Agregar gasto",
+              "¿Qué tipo de gasto deseas agregar?",
+              options
+            );
+          }}
         >
           <Text style={styles.fabText}>＋</Text>
         </TouchableOpacity>
@@ -566,7 +647,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(55,65,81,0.6)",
   },
 
-  // ✅ AHORA ES COLUMNA (total debajo del título)
   phaseHeader: {
     flexDirection: "column",
     paddingHorizontal: 12,
@@ -580,10 +660,32 @@ const styles = StyleSheet.create({
 
   phaseDot: { width: 10, height: 10, borderRadius: 999, marginRight: 8 },
   phaseTitle: { color: "#E5E7EB", fontSize: 15, fontWeight: "600" },
-  phaseTotal: { color: "#F9FAFB", fontSize: 15, fontWeight: "600", marginTop: 6 },
+  phaseTotal: {
+    color: "#F9FAFB",
+    fontSize: 15,
+    fontWeight: "600",
+    marginTop: 6,
+  },
   phaseToggle: { color: "#9CA3AF", fontSize: 12, marginTop: 2 },
 
   phaseBody: { paddingHorizontal: 8, paddingBottom: 8 },
+
+  // ✅ Botón reporte
+  reportButton: {
+    marginTop: 8,
+    marginBottom: 8,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    backgroundColor: "rgba(148,163,184,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.25)",
+  },
+  reportButtonText: {
+    color: "#E5E7EB",
+    fontSize: 13,
+    fontWeight: "700",
+  },
 
   emptyText: { color: "#9CA3AF", fontSize: 13, padding: 8 },
 
