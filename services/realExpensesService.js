@@ -119,78 +119,109 @@ export const realExpensesService = {
    * - Fallback final "default" en tarifas por rol
    * ============================================================ */
   async getManoObraReal(projectId) {
-  const horasSnap = await getDocs(
-    query(collection(db, "horas_personal"), where("proyectoId", "==", projectId))
-  );
+    const EXTRA_FACTOR = 1.25;
 
-  const registros = horasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const horasSnap = await getDocs(
+      query(collection(db, "horas_personal"), where("proyectoId", "==", projectId))
+    );
 
-  // Agrupar por personalId
-  const personasMap = new Map();
+    const registros = horasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-  registros.forEach((r) => {
-    if (!r.personalId) return;
+    // Agrupar por personalId
+    const personasMap = new Map();
 
-    if (!personasMap.has(r.personalId)) {
-      personasMap.set(r.personalId, {
-        personalId: r.personalId,
-        nombre: r.nombre || "",
-        rol: r.rol || null,
-        horasNormales: 0,
-        horasExtras: 0,
-        totalHoras: 0,
-      });
-    }
+    registros.forEach((r) => {
+      if (!r.personalId) return;
 
-    const item = personasMap.get(r.personalId);
-    item.horasNormales += Number(r.horasNormales || 0);
-    item.horasExtras += Number(r.horasExtras || 0);
-    item.totalHoras += Number(r.totalHoras || 0);
+      if (!personasMap.has(r.personalId)) {
+        personasMap.set(r.personalId, {
+          personalId: r.personalId,
+          nombre: r.nombre || "",
+          rol: r.rol || null,
+          horasNormales: 0,
+          horasExtras: 0,
+          totalHoras: 0,
+        });
+      }
 
-    if (r.rol && !item.rol) item.rol = r.rol;
-    if (r.nombre && !item.nombre) item.nombre = r.nombre;
-  });
+      const item = personasMap.get(r.personalId);
+      const hn = Number(r.horasNormales || 0);
+      const he = Number(r.horasExtras || 0);
+      const th = Number(r.totalHoras || (hn + he) || 0);
 
-  const personas = Array.from(personasMap.values());
+      item.horasNormales += hn;
+      item.horasExtras += he;
+      item.totalHoras += th;
 
-  // Cargar personal una sola vez y sacar tarifaHora
-  const personalSnap = await getDocs(collection(db, "personal"));
-  const rolMap = new Map();
-  const nombreMap = new Map();
-  const tarifaMap = new Map();
+      if (r.rol && !item.rol) item.rol = r.rol;
+      if (r.nombre && !item.nombre) item.nombre = r.nombre;
+    });
 
-  personalSnap.forEach((d) => {
-    const data = d.data() || {};
-    rolMap.set(d.id, data.rol || "Operario");
-    nombreMap.set(d.id, data.nombre || data.fullName || "");
-    tarifaMap.set(d.id, Number(data.tarifaHora || 0));
-  });
+    const personas = Array.from(personasMap.values());
 
-  // Completar rol/nombre faltante
-  personas.forEach((p) => {
-    if (!p.rol) p.rol = rolMap.get(p.personalId) || "Operario";
-    if (!p.nombre) p.nombre = nombreMap.get(p.personalId) || p.nombre || "";
-  });
+    // Cargar personal una sola vez y sacar tarifaHora por usuario
+    const personalSnap = await getDocs(collection(db, "personal"));
+    const rolMap = new Map();
+    const nombreMap = new Map();
+    const tarifaMap = new Map();
 
-  //  Calcular total (agregado)
-  let totalManoObra = 0;
+    personalSnap.forEach((d) => {
+      const data = d.data() || {};
+      rolMap.set(d.id, data.rol || "Operario");
+      nombreMap.set(d.id, data.nombre || data.fullName || "");
+      tarifaMap.set(d.id, Number(data.tarifaHora || 0)); // ✅ ÚNICA FUENTE
+    });
 
-  const detalle = personas.map((p) => {
-    const tarifaHora = tarifaMap.get(p.personalId) ?? 0;
-    const costoTotal = Number(p.totalHoras || 0) * Number(tarifaHora || 0);
-    totalManoObra += costoTotal;
+    // Completar rol/nombre faltante
+    personas.forEach((p) => {
+      if (!p.rol) p.rol = rolMap.get(p.personalId) || "Operario";
+      if (!p.nombre) p.nombre = nombreMap.get(p.personalId) || p.nombre || "";
+    });
+
+    // Totales agregados
+    let totalManoObra = 0;
+    let totalHorasManoObra = 0;
+    let totalHorasNormales = 0;
+    let totalHorasExtras = 0;
+
+    // Detalle (NO mostrar en UI, solo interno)
+    const detalle = personas.map((p) => {
+      const tarifaHora = tarifaMap.get(p.personalId) ?? 0;
+
+      const hn = Number(p.horasNormales || 0);
+      const he = Number(p.horasExtras || 0);
+      const th = Number(p.totalHoras || (hn + he) || 0);
+
+      const costoNormal = hn * tarifaHora;
+      const costoExtra = he * tarifaHora * EXTRA_FACTOR;
+      const costoTotal = costoNormal + costoExtra;
+
+      totalManoObra += costoTotal;
+      totalHorasManoObra += th;
+      totalHorasNormales += hn;
+      totalHorasExtras += he;
+
+      return {
+        ...p,
+        tarifaHora,
+        costoNormal,
+        costoExtra,
+        costoTotal,
+        extraFactor: EXTRA_FACTOR,
+        tipo: "manoObra",
+        fase: "fase3",
+      };
+    });
 
     return {
-      ...p,
-      tarifaHora,
-      costoTotal,
-      tipo: "manoObra",
-      fase: "fase3",
+      detalle,
+      totalManoObra,
+      totalHorasManoObra,
+      totalHorasNormales,
+      totalHorasExtras,
+      extraFactor: EXTRA_FACTOR,
     };
-  });
-
-  return { detalle, totalManoObra };
-},
+  },
 
   /* ============================================================
    * Datos financieros del proyecto (principal)
@@ -362,6 +393,10 @@ export const realExpensesService = {
       manoObra: manoObraReal.detalle,
       manoObraRealDetalle: manoObraReal.detalle,
       totalManoObraReal: manoObraReal.totalManoObra,
+      totalHorasManoObra: manoObraReal.totalHorasManoObra,
+      totalHorasNormales: manoObraReal.totalHorasNormales,
+      totalHorasExtras: manoObraReal.totalHorasExtras,
+      extraFactor: manoObraReal.extraFactor,
     };
   },
 };

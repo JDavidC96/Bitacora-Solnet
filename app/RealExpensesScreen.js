@@ -17,7 +17,7 @@ import { useUser } from "../context/UserContext";
 import { db } from "../firebase/firebaseConfig";
 import { realExpensesService } from "../services/realExpensesService";
 
-// ✅ Quitamos material externo: ya no se importa ni se usa
+// Quitamos material externo: ya no se importa ni se usa
 // import AddMaterialModal from "../components/realExpenses/AddMaterialModal";
 import AddTramiteModal from "../components/realExpenses/AddTramiteModal";
 import AddViaticoModal from "../components/realExpenses/AddViaticoModal";
@@ -31,21 +31,30 @@ function formatCurrency(value) {
   }
 }
 
+/**
+ * ✅ Header en columna:
+ * - Línea 1: Punto + Título
+ * - Línea 2: Total (debajo del título)
+ * - Línea 3: Toggle (debajo del total)
+ */
 function PhaseSection({ title, color, total, children, expanded, onToggle }) {
   return (
     <View style={styles.phaseContainer}>
       <TouchableOpacity style={styles.phaseHeader} onPress={onToggle}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <View style={styles.phaseTitleRow}>
           <View style={[styles.phaseDot, { backgroundColor: color }]} />
-          <Text style={styles.phaseTitle}>{title}</Text>
-        </View>
-        <View style={{ alignItems: "flex-end" }}>
-          <Text style={styles.phaseTotal}>{formatCurrency(total)}</Text>
-          <Text style={styles.phaseToggle}>
-            {expanded ? "Ocultar ▲" : "Ver detalles ▼"}
+          <Text style={styles.phaseTitle} numberOfLines={2}>
+            {title}
           </Text>
         </View>
+
+        <Text style={styles.phaseTotal}>{formatCurrency(total)}</Text>
+
+        <Text style={styles.phaseToggle}>
+          {expanded ? "Ocultar ▲" : "Ver detalles ▼"}
+        </Text>
       </TouchableOpacity>
+
       {expanded && <View style={styles.phaseBody}>{children}</View>}
     </View>
   );
@@ -63,15 +72,11 @@ function ExpenseItemCard({ item, type, expanded, onToggle }) {
     case "material": {
       title = item.nombre || "Material";
 
-      const unit =
-        item.precioUnitario ?? item.costoUnitario ?? item.precio ?? 0;
+      const unit = item.precioUnitario ?? item.costoUnitario ?? item.precio ?? 0;
 
-      amount =
-        item.total ?? (Number(unit) * Number(item.cantidad || 0)) ?? 0;
+      amount = item.total ?? (Number(unit) * Number(item.cantidad || 0)) ?? 0;
 
-      subtitle = `Cant: ${item.cantidad || 0} · C. unit: ${formatCurrency(
-        unit
-      )}`;
+      subtitle = `Cant: ${item.cantidad || 0} · C. unit: ${formatCurrency(unit)}`;
 
       extraLines = [
         item.codigo ? `Código: ${item.codigo}` : null,
@@ -102,29 +107,24 @@ function ExpenseItemCard({ item, type, expanded, onToggle }) {
       ];
       break;
 
-    case "manoObra":
-      // tolerante a ambos formatos
-      title = item.personalNombre || item.nombre || "Mano de obra";
-      amount = item.total || item.costoTotal || 0;
+    /**
+     * ✅ Mano de obra agregada (SIN sueldos individuales)
+     * Espera el objeto "manoObraSummary" creado en groupedByPhase.
+     */
+    case "manoObra": {
+      title = "Mano de obra (agregado)";
+      amount = Number(item.total || 0);
 
-      if (item.totalHoras != null) {
-        subtitle = `Total horas: ${item.totalHoras || 0} · Tarifa/h: ${formatCurrency(
-          item.tarifaHora || 0
-        )}`;
-      } else {
-        subtitle = `H. normales: ${item.horasNormales || 0} · H. extra: ${
-          item.horasExtras || 0
-        }`;
-      }
+      const th = Number(item.totalHorasManoObra || 0);
+      const hn = Number(item.totalHorasNormales || 0);
+      const he = Number(item.totalHorasExtras || 0);
+      const factor = Number(item.extraFactor || 1.25);
 
-      extraLines = [
-        item.rol ? `Rol: ${item.rol}` : null,
-        item.fechaInicio
-          ? `Desde: ${new Date(item.fechaInicio).toLocaleString()}`
-          : null,
-        item.fechaFin ? `Hasta: ${new Date(item.fechaFin).toLocaleString()}` : null,
-      ];
+      subtitle = `Horas: ${th} (Norm: ${hn} / Extra: ${he})`;
+
+      extraLines = [`Factor horas extra: x${factor}`];
       break;
+    }
 
     default:
       title = "Gasto";
@@ -179,6 +179,7 @@ export default function RealExpensesScreen() {
   const [loading, setLoading] = useState(true);
 
   const canSeeAll = ["Administrador", "Administrativo"].includes(role);
+  const canSeePhase3 = canSeeAll || role === "Supervisor"; // ✅ FIX REAL
 
   const [expandedPhase, setExpandedPhase] = useState(() => ({
     fase1: canSeeAll ? true : false,
@@ -210,7 +211,7 @@ export default function RealExpensesScreen() {
     loadData();
   }, [projectId]);
 
-  // ✅ RECARGAR AL VOLVER A ESTA PANTALLA (sin cerrar la app)
+  // RECARGAR AL VOLVER A ESTA PANTALLA (sin cerrar la app)
   useFocusEffect(
     useCallback(() => {
       if (projectId) loadData();
@@ -222,15 +223,27 @@ export default function RealExpensesScreen() {
 
     const fase1 = data.materiales.filter((m) => m.fase === "fase1");
     const fase2 = data.materiales.filter((m) => m.fase === "fase2");
+
+    // ✅ Item virtual SOLO UI (resumen agregado)
+    const manoObraSummary = {
+      id: "mano-obra-summary",
+      tipo: "manoObra",
+      fase: "fase3",
+      total: Number(data.totalManoObraReal || 0),
+      totalHorasManoObra: Number(data.totalHorasManoObra || 0),
+      totalHorasNormales: Number(data.totalHorasNormales || 0),
+      totalHorasExtras: Number(data.totalHorasExtras || 0),
+      extraFactor: Number(data.extraFactor || 1.25),
+    };
+
     const fase3 = [
       ...data.viaticos,
-      ...(data.personal || []),
-      ...(data.manoObra || []),
+      manoObraSummary, 
     ];
+
     const fase4 = data.tramites || [];
 
     if (!canSeeAll) return { fase1: [], fase2: [], fase3, fase4: [] };
-
     return { fase1, fase2, fase3, fase4 };
   }, [data, canSeeAll]);
 
@@ -368,36 +381,35 @@ export default function RealExpensesScreen() {
             </PhaseSection>
           )}
 
-          <PhaseSection
-            title="Fase 3 - Instalación y Puesta en Servicio"
-            color="#eab308"
-            total={data.realesPorFase.fase3}
-            expanded={expandedPhase.fase3}
-            onToggle={() =>
-              setExpandedPhase((prev) => ({ ...prev, fase3: !prev.fase3 }))
-            }
-          >
-            {groupedByPhase.fase3.length === 0 ? (
-              <Text style={styles.emptyText}>Sin gastos registrados.</Text>
-            ) : (
-              groupedByPhase.fase3.map((item, idx) => {
-                let type = "viatico";
-                if (item.tipo === "personal") type = "manoObra";
-                if (item.tipo === "manoObra") type = "manoObra";
-
-                const key = `${type}-${item.id || idx}`;
-                return (
-                  <ExpenseItemCard
-                    key={key}
-                    item={item}
-                    type={type}
-                    expanded={!!expandedItems[key]}
-                    onToggle={() => toggleItem(key)}
-                  />
-                );
-              })
-            )}
-          </PhaseSection>
+          {canSeePhase3 ? (
+            <PhaseSection
+              title="Fase 3 - Instalación y Puesta en Servicio"
+              color="#eab308"
+              total={data.realesPorFase.fase3}
+              expanded={expandedPhase.fase3}
+              onToggle={() =>
+                setExpandedPhase((prev) => ({ ...prev, fase3: !prev.fase3 }))
+              }
+            >
+              {groupedByPhase.fase3.length === 0 ? (
+                <Text style={styles.emptyText}>Sin gastos registrados.</Text>
+              ) : (
+                groupedByPhase.fase3.map((item, idx) => {
+                  const type = item.tipo;
+                  const key = `${type}-${item.id || idx}`;
+                  return (
+                    <ExpenseItemCard
+                      key={key}
+                      item={item}
+                      type={type}
+                      expanded={!!expandedItems[key]}
+                      onToggle={() => toggleItem(key)}
+                    />
+                  );
+                })
+              )}
+            </PhaseSection>
+          ) : null}
 
           {canSeeAll && (
             <PhaseSection
@@ -494,12 +506,26 @@ export default function RealExpensesScreen() {
         <TouchableOpacity
           style={styles.fabButton}
           onPress={() => {
-            Alert.alert("Agregar gasto", "¿Qué tipo de gasto deseas agregar?", [
-              { text: "Viático", onPress: () => setShowViaticoModal(true) },
-              { text: "Trámite", onPress: () => setShowTramiteModal(true) },
-              { text: "Cancelar", style: "cancel" },
-            ]);
-          }}
+  const options = [
+    { text: "Viático", onPress: () => setShowViaticoModal(true) },
+  ];
+
+  if (["Administrador", "Administrativo", "Ingeniero"].includes(role)) {
+    options.push({
+      text: "Trámite",
+      onPress: () => setShowTramiteModal(true),
+    });
+  }
+
+  options.push({ text: "Cancelar", style: "cancel" });
+
+  Alert.alert(
+    "Agregar gasto",
+    "¿Qué tipo de gasto deseas agregar?",
+    options
+  );
+}}
+
         >
           <Text style={styles.fabText}>＋</Text>
         </TouchableOpacity>
@@ -539,17 +565,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(55,65,81,0.6)",
   },
+
+  // ✅ AHORA ES COLUMNA (total debajo del título)
   phaseHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    flexDirection: "column",
     paddingHorizontal: 12,
     paddingVertical: 10,
+  },
+
+  phaseTitleRow: {
+    flexDirection: "row",
     alignItems: "center",
   },
+
   phaseDot: { width: 10, height: 10, borderRadius: 999, marginRight: 8 },
   phaseTitle: { color: "#E5E7EB", fontSize: 15, fontWeight: "600" },
-  phaseTotal: { color: "#F9FAFB", fontSize: 15, fontWeight: "600" },
-  phaseToggle: { color: "#9CA3AF", fontSize: 12 },
+  phaseTotal: { color: "#F9FAFB", fontSize: 15, fontWeight: "600", marginTop: 6 },
+  phaseToggle: { color: "#9CA3AF", fontSize: 12, marginTop: 2 },
+
   phaseBody: { paddingHorizontal: 8, paddingBottom: 8 },
 
   emptyText: { color: "#9CA3AF", fontSize: 13, padding: 8 },

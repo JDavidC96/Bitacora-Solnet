@@ -2,7 +2,6 @@
 import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import ModalBase from '../ModalBase';
 
-
 export default function ProjectActionsModal({ 
   visible, 
   project, 
@@ -10,10 +9,7 @@ export default function ProjectActionsModal({
   onEdit, 
   onAssign, 
   onDelete,
-  canIngenieroRole,
-  onAssignMe,
-  onUnassignMe,
-  isAssignedToThisProject,
+  canManage = true,
   loading = false 
 }) {
   if (!project) return null;

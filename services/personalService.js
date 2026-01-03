@@ -16,8 +16,6 @@ import {
 import { db } from "../firebase/firebaseConfig";
 import { calculateWorkHours } from "../utils/calculateWorkHours";
 import { horasLaboralesService } from "./horasLaboralesService";
-import realExpensesService from "./realExpensesService";
-import tarifasService from "./tarifasService";
 
 export const personalService = {
   /**************************************************************
@@ -200,6 +198,7 @@ export const personalService = {
   /* ==============================
    * HISTORIAL (ACTUALIZAR, NO CREAR)
    * ============================== */
+
   const q = query(
     collection(db, "historial_personal"),
     where("personalId", "==", personId),
@@ -219,44 +218,6 @@ export const personalService = {
   });
 
   /* ==============================
-   * GASTO REAL (SE MANTIENE)
-   * ============================== */
-  if (data.proyectoId) {
-    try {
-      const tarifaHora = await tarifasService.getTarifaByRol(
-        data.cargo || "Tecnico"
-      );
-
-      const costoNormal = horasNormales * tarifaHora;
-      const costoExtra = horasExtras * tarifaHora * 1.25;
-      const costoTotal = costoNormal + costoExtra;
-
-      await realExpensesService.createManoObra({
-        projectId: data.proyectoId,
-        personalId: personId,
-        nombre: data.nombre,
-        rol: data.cargo || "Tecnico",
-
-        horasNormales,
-        horasExtras,
-
-        tarifaHora,
-        costoNormal,
-        costoExtra,
-        costoTotal,
-
-        fechaInicio: fechaInicio.toISOString(),
-        fechaFin: fechaFin.toISOString(),
-
-        source: "horas_personal",
-        createdAt: nowISO,
-      });
-    } catch (err) {
-      console.error("Error creando gasto real:", err);
-    }
-  }
-
-  /* ==============================
    * LIBERAR PERSONA
    * ============================== */
   await updateDoc(ref, {
@@ -268,8 +229,7 @@ export const personalService = {
   });
 
   return { ok: true, horasNormales, horasExtras, totalHoras };
-}
-,
+},
 
   /**************************************************************
    * 6) Eliminar persona
