@@ -12,6 +12,9 @@ import {
   View
 } from 'react-native';
 
+//Firebase
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase/firebaseConfig';
 // Hooks personalizados
 import { useUser } from '../context/UserContext';
 import { useBackHandler } from '../hooks/useBackHandler';
@@ -44,6 +47,8 @@ export default function HomeScreen() {
   // Estados
   const [selectedProject, setSelectedProject] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [myPersonalId, setMyPersonalId] = useState(null);
+  const [myPersonalLoading, setMyPersonalLoading] = useState(true);
 
   // Hooks personalizados
   const { projects, loading: projectsLoading, error: projectsError } = useProjects();
@@ -61,7 +66,38 @@ export default function HomeScreen() {
   useNotifications();
 
   // Permisos
-  const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+  // Permisos (según punto 13)
+const canManage = ["Administrador", "Ingeniero"].includes(role); // gestión real
+const canSelfAssign = ["Tecnico", "Supervisor"].includes(role);  // auto-asignación / auto-liberación
+
+// Persona del usuario (si ya cargó personal)
+const myPersona = useMemo(() => {
+  if (!myPersonalId) return null;
+  return (personal || []).find(p => p.id === myPersonalId) || null;
+}, [personal, myPersonalId]);
+
+
+  useMemo(() => {
+  let cancelled = false;
+
+  (async () => {
+    try {
+      if (!user?.uid) return;
+      const ref = doc(db, "usuarios_permitidos", user.uid);
+      const snap = await getDoc(ref);
+      const pid = snap.exists() ? snap.data()?.personalId : null;
+
+      if (!cancelled) setMyPersonalId(pid || null);
+    } catch (e) {
+      console.error("Error leyendo personalId del usuario:", e);
+      if (!cancelled) setMyPersonalId(null);
+    } finally {
+      if (!cancelled) setMyPersonalLoading(false);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, [user?.uid]);
 
   // Total kW AC instalados (suma de todos los proyectos)
   const totalKwAc = useMemo(() => {
@@ -157,10 +193,94 @@ export default function HomeScreen() {
     );
   };
 
+  const handleSelfAssign = async (project) => {
+  if (!canSelfAssign) return;
+  if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
+  if (!myPersona?.id) return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
+
+  setLoading(true);
+  try {
+    await personalService.selfAssignToProject(myPersona.id, { id: project.id, title: project.title });
+    await markAssignActivity(); // asignar => ultimoLogin + lastActivity
+    Alert.alert("Éxito", "Te asignaste al proyecto.");
+  } catch (e) {
+    console.error("Error auto-asignando:", e);
+    Alert.alert("Error", e?.message || "No se pudo asignar.");
+  } finally {
+    setLoading(false);
+  }
+};
+
+const confirmSelfUnassign = (project) => {
+  Alert.alert(
+    "Liberar personal",
+    `¿Liberarte del proyecto?`,
+    [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Liberar",
+        style: "destructive",
+        onPress: () => handleSelfUnassign(project),
+      },
+    ]
+  );
+};
+
+
+const handleSelfUnassign = async (project) => {
+  if (!canSelfAssign) return;
+  if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
+  if (!myPersona?.id) {
+    return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
+  }
+
+  setLoading(true);
+  try {
+    await personalService.liberar(myPersona.id);
+
+    // desasignar => SOLO lastActivity
+    await markUnassignActivity();
+
+    Alert.alert("Éxito", "Te liberaste del proyecto.");
+  } catch (e) {
+    console.error("Error auto-liberando:", e);
+    Alert.alert("Error", e?.message || "No se pudo liberar.");
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+
   const handleProjectLongPress = (project) => {
-    setSelectedProject(project);
-    openModal('actions');
-  };
+  setSelectedProject(project);
+
+  // Técnico/Supervisor: self actions
+  if (canSelfAssign) {
+    if (!myPersona?.id) {
+      return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
+    }
+
+    const iAmAssignedHere = myPersona.proyectoId === project.id || myPersona.proyectoAsignado === project.title;
+
+    Alert.alert(
+      project.title || "Proyecto",
+      "Acción",
+      [
+        !iAmAssignedHere
+          ? { text: "Asignarme a este proyecto", onPress: () => handleSelfAssign(project) }
+          : { text: "Liberarme", style: "destructive", onPress: () => confirmSelfUnassign(project) },
+            { text: "Cancelar", style: "cancel" },
+      ]
+    );
+
+    return;
+  }
+
+  // Admin/Ingeniero: modal acciones
+  openModal("actions");
+};
+
 
   const handleProjectPress = (project) => {
     router.push({
@@ -171,6 +291,24 @@ export default function HomeScreen() {
       },
     });
   };
+
+  const markAssignActivity = async () => {
+  if (!user?.uid) return;
+
+  await updateDoc(doc(db, "usuarios_permitidos", user.uid), {
+    ultimoLogin: serverTimestamp(),
+    lastActivity: serverTimestamp(),
+  });
+};
+
+const markUnassignActivity = async () => {
+  if (!user?.uid) return;
+
+  await updateDoc(doc(db, "usuarios_permitidos", user.uid), {
+    lastActivity: serverTimestamp(),
+  });
+};
+
 
   const handleAssignPerson = async (personId) => {
     if (!selectedProject || !personId) return;
@@ -292,13 +430,22 @@ export default function HomeScreen() {
           {/* Lista de proyectos */}
           {!projectsLoading && (
             <ProjectList
-              projects={sortedProjects}
-              personal={personal}
-              canManage={canManage}
-              onProjectPress={handleProjectPress}
-              onProjectLongPress={handleProjectLongPress}
-              onLiberarPersona={handleLiberarPersona}
-            />
+  projects={sortedProjects}
+  personal={personal}
+
+  // roles/permisos
+  viewerRole={role}
+  viewerPersonalId={myPersonalId}
+  canManage={canManage}
+
+  // navegación
+  onProjectPress={handleProjectPress}
+  onProjectLongPress={handleProjectLongPress}
+
+  // admin libera a otros
+  onLiberarPersona={handleLiberarPersona}
+/>
+
           )}
 
           {/* Botones flotantes */}

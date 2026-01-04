@@ -1,15 +1,17 @@
 // components/home/ProjectList.js
-import { FlatList, StyleSheet, Text, View } from 'react-native';
-import ProjectCard from './ProjectCard';
+import { FlatList, StyleSheet, Text, View } from "react-native";
+import ProjectCard from "./ProjectCard";
 
-export default function ProjectList({ 
-  projects, 
-  personal, 
-  canManage, 
-  onProjectPress, 
-  onProjectLongPress, 
+export default function ProjectList({
+  projects,
+  personal,
+  viewerRole,
+  viewerPersonalId,
+  canManage,
+  onProjectPress,
+  onProjectLongPress,
   onLiberarPersona,
-  loading = false 
+  loading = false,
 }) {
   if (loading) {
     return (
@@ -25,8 +27,8 @@ export default function ProjectList({
         <Text style={styles.emptyText}>No hay proyectos creados</Text>
         <Text style={styles.emptySubtext}>
           {canManage
-            ? 'Presiona el botón ＋ para crear tu primer proyecto'
-            : 'Contacta al administrador para crear nuevos proyectos'}
+            ? "Presiona el botón ＋ para crear tu primer proyecto"
+            : "Contacta al administrador para crear nuevos proyectos"}
         </Text>
       </View>
     );
@@ -36,6 +38,8 @@ export default function ProjectList({
     <ProjectCard
       item={item}
       personal={personal}
+      viewerRole={viewerRole}
+      viewerPersonalId={viewerPersonalId}
       canManage={canManage}
       onPress={onProjectPress}
       onLongPress={onProjectLongPress}
@@ -64,39 +68,28 @@ export default function ProjectList({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  list: {
-    paddingBottom: 120,
-  },
+  container: { flex: 1 },
+  list: { paddingBottom: 120 },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingVertical: 40,
   },
-  loadingText: {
-    color: '#4B5563',
-    fontSize: 15,
-  },
+  loadingText: { color: "#4B5563", fontSize: 15 },
   emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingVertical: 50,
     paddingHorizontal: 24,
   },
   emptyText: {
-    color: '#111827',
+    color: "#111827",
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
-  emptySubtext: {
-    color: '#6B7280',
-    fontSize: 14,
-    textAlign: 'center',
-  },
+  emptySubtext: { color: "#6B7280", fontSize: 14, textAlign: "center" },
 });
