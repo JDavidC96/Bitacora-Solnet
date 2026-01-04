@@ -1,12 +1,12 @@
 // components/realExpenses/AddViaticoModal.js
 import { useState } from "react";
 import {
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function AddViaticoModal({
@@ -22,6 +22,14 @@ export default function AddViaticoModal({
 
   if (!visible) return null;
 
+  const resetForm = () => {
+  setConcepto("");
+  setCategoria("");
+  setValor("");
+  setNotas("");
+};
+
+
   const handleSave = () => {
     if (!concepto.trim()) return;
     onConfirm({
@@ -30,6 +38,7 @@ export default function AddViaticoModal({
       valor,
       notas,
     });
+    resetForm();
   };
 
   return (
@@ -73,13 +82,23 @@ export default function AddViaticoModal({
           />
 
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelText}>Cancelar</Text>
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => {
+              resetForm();  
+              onClose();
+              }}
+            >
+
+            <Text style={styles.cancelText}>Cancelar</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.saveBtn, loading && { opacity: 0.6 }]}
-              onPress={handleSave}
+              onPress={() => {
+                handleSave();
+                resetForm();
+              }}
               disabled={loading}
             >
               <Text style={styles.saveText}>

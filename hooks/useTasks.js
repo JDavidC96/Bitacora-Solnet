@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { db } from '../firebase/firebaseConfig';
 import { buildSchedule, DEFINICION_TAREAS, HOLIDAYS_CO, MANTENIMIENTOS_TAREAS } from '../helper';
+import projectService from '../services/projectService';
 import { useProjectCache } from './useProjectCache';
 
 export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrrogaRole) => {
@@ -10,45 +11,90 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
   const [prorrogaModal, setProrrogaModal] = useState(false);
   const [prorrogaTarget, setProrrogaTarget] = useState(null);
   const [prorrogaDias, setProrrogaDias] = useState('0');
-  const { saveProjectToCache, getCachedProject } = useProjectCache();
-  
+  const { saveProjectToCache } = useProjectCache();
+
   // Refs para controlar la creación de mantenimientos
   const maintenanceCreationInProgress = useRef(false);
   const createdMaintenances = useRef(new Set());
 
-  // Escuchar etapas - SOLO si projectId es válido
+  // Escuchar etapas
   useEffect(() => {
     if (!projectId) return;
 
     const q = collection(db, 'proyectos', projectId, 'etapas');
-    const unsub = onSnapshot(q, async (snap) => {
-      const data = snap.docs.map((d) => ({ idDoc: d.id, ...d.data() }));
-      setTasks(data);
-      
-      // Verificar si el acta de legalización está cumplida para crear mantenimientos
-      await checkAndCreateMaintenanceTasks(projectId, data);
-      
-      // Guardar en cache para notificaciones
-      try {
-        const projectRef = doc(db, 'proyectos', projectId);
-        const projectSnap = await getDoc(projectRef);
-        if (projectSnap.exists()) {
-          const projectData = projectSnap.data();
-          saveProjectToCache(projectId, projectData, data);
+    const unsub = onSnapshot(
+      q,
+      async (snap) => {
+        const data = snap.docs.map((d) => ({ idDoc: d.id, ...d.data() }));
+        setTasks(data);
+
+        // ✅ Verificar y crear mantenimientos según "última etapa requerida"
+        await checkAndCreateMaintenanceTasks(projectId, data);
+
+        // Guardar en cache para notificaciones
+        try {
+          const projectRef = doc(db, 'proyectos', projectId);
+          const projectSnap = await getDoc(projectRef);
+          if (projectSnap.exists()) {
+            const projectData = projectSnap.data();
+            saveProjectToCache(projectId, projectData, data);
+          }
+        } catch (error) {
+          console.error('Error saving tasks to cache:', error);
         }
-      } catch (error) {
-        console.error('Error saving tasks to cache:', error);
+      },
+      (error) => {
+        console.error('Error en snapshot de etapas:', error);
       }
-    }, (error) => {
-      console.error('Error en snapshot de etapas:', error);
-    });
-    
+    );
+
     return () => unsub();
   }, [projectId]);
 
+  // -------------------------------
+  // Helpers de mantenimiento
+  // -------------------------------
+
+  /**
+   * Devuelve la "última etapa requerida" del flujo:
+   * recorre DEFINICION_TAREAS desde el final hacia atrás y toma la primera tarea
+   * que exista en Firestore y NO esté marcada como noAplica.
+   *
+   * Ej: si acta_legalizacion es noAplica => última requerida = legalizacion
+   * si legalizacion también noAplica => subsanar_visita, etc.
+   */
+  const getUltimaEtapaRequerida = (currentTasks) => {
+    const byId = new Map(
+      currentTasks
+        .filter((t) => !t.esMantenimiento)
+        .map((t) => [t.idTarea, t])
+    );
+
+    for (let i = DEFINICION_TAREAS.length - 1; i >= 0; i--) {
+      const def = DEFINICION_TAREAS[i];
+      const t = byId.get(def.id);
+      if (!t) continue;
+      if (t.noAplica === true) continue;
+      return t;
+    }
+
+    // Caso extremo: todas las tareas del final quedaron noAplica o no existen
+    // retornamos la última existente (si hay) solo para no devolver null.
+    const vals = [...byId.values()];
+    return vals.length ? vals[vals.length - 1] : null;
+  };
+
+  const getFechaDeCierreEtapa = (etapa) => {
+    return (
+      etapa?.fechaCumplida ||
+      etapa?.fechaNoAplica ||
+      etapa?.fechaFin ||
+      new Date().toISOString().split('T')[0]
+    );
+  };
+
   // Función para verificar y crear tareas de mantenimiento
   const checkAndCreateMaintenanceTasks = async (projectId, currentTasks) => {
-    // Evitar ejecuciones concurrentes
     if (maintenanceCreationInProgress.current) {
       console.log('⚠️ Creación de mantenimientos en progreso, omitiendo...');
       return;
@@ -57,37 +103,46 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
     try {
       maintenanceCreationInProgress.current = true;
 
-      // Verificar si el acta de legalización está cumplida
-      const actaLegalizacion = currentTasks.find(t => t.idTarea === 'acta_legalizacion');
-      
-      if (actaLegalizacion && actaLegalizacion.cumplida) {
-        console.log('📋 Acta de legalización cumplida, verificando mantenimientos...');
-        
-        // Verificar si los mantenimientos ya existen
-        const primerMantenimiento = currentTasks.find(t => t.idTarea === 'primer_mantenimiento');
-        const segundoMantenimiento = currentTasks.find(t => t.idTarea === 'segundo_mantenimiento');
-        
-        const mantenimientosPorCrear = [];
-        
-        if (!primerMantenimiento && !createdMaintenances.current.has('primer_mantenimiento')) {
-          mantenimientosPorCrear.push('primer_mantenimiento');
-        }
-        
-        if (!segundoMantenimiento && !createdMaintenances.current.has('segundo_mantenimiento')) {
-          mantenimientosPorCrear.push('segundo_mantenimiento');
-        }
+      // 1) Si ya existen mantenimientos en BD, no hacer nada
+      const yaExisteMantenimiento = currentTasks.some((t) => t.esMantenimiento === true);
+      if (yaExisteMantenimiento) {
+        createdMaintenances.current.add('primer_mantenimiento');
+        createdMaintenances.current.add('segundo_mantenimiento');
+        return;
+      }
 
-        // Solo crear mantenimientos si no existen y no se han creado en esta sesión
-        if (mantenimientosPorCrear.length > 0) {
-          console.log(`🛠️ Creando ${mantenimientosPorCrear.length} mantenimientos...`);
-          await createMaintenanceTasks(projectId, currentTasks, mantenimientosPorCrear);
-        } else {
-          console.log('✅ Todos los mantenimientos ya existen o fueron creados');
-        }
-      } else if (!actaLegalizacion?.cumplida) {
-        console.log('⏳ Acta de legalización no cumplida, mantenimientos pendientes');
-        // Resetear el tracking si el acta se desmarca
+      // 2) Determinar la última etapa requerida (saltando noAplica desde el final)
+      const ultimaRequerida = getUltimaEtapaRequerida(currentTasks);
+      if (!ultimaRequerida) return;
+
+      // 3) Solo se activa mantenimiento si la ÚLTIMA REQUERIDA está finalizada (cumplida)
+      // Nota: por diseño no debería ser noAplica (la filtramos), pero lo dejamos por robustez.
+      const estadoFinal = ultimaRequerida.cumplida === true || ultimaRequerida.noAplica === true;
+      if (!estadoFinal) {
         createdMaintenances.current.clear();
+        return;
+      }
+
+      console.log(`🏁 Última etapa requerida finalizada (${ultimaRequerida.titulo}) => creando mantenimientos...`);
+
+      // 4) Qué mantenimientos crear
+      const mantenimientosPorCrear = [];
+      if (!createdMaintenances.current.has('primer_mantenimiento')) mantenimientosPorCrear.push('primer_mantenimiento');
+      if (!createdMaintenances.current.has('segundo_mantenimiento')) mantenimientosPorCrear.push('segundo_mantenimiento');
+
+      if (mantenimientosPorCrear.length === 0) return;
+
+      const fechaBase = getFechaDeCierreEtapa(ultimaRequerida);
+
+      await createMaintenanceTasks(projectId, currentTasks, mantenimientosPorCrear, fechaBase);
+
+      mantenimientosPorCrear.forEach((id) => createdMaintenances.current.add(id));
+
+      // ✅ Badge persistente en el proyecto (solo al activarse)
+      try {
+        await projectService.markMaintenanceActivated(projectId, ultimaRequerida.titulo);
+      } catch (e) {
+        console.error('Error guardando badge de mantenimiento:', e);
       }
     } catch (error) {
       console.error('Error verificando mantenimientos:', error);
@@ -96,48 +151,40 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
     }
   };
 
-  // Función para crear tareas de mantenimiento específicas
-  const createMaintenanceTasks = async (projectId, existingTasks, mantenimientosACrear) => {
+  // Crear tareas de mantenimiento específicas (con fecha base configurable)
+  const createMaintenanceTasks = async (projectId, existingTasks, mantenimientosACrear, fechaBaseISO) => {
     try {
-      // Obtener la fecha del acta de legalización
-      const actaLegalizacion = existingTasks.find(t => t.idTarea === 'acta_legalizacion');
-      if (!actaLegalizacion) {
-        console.log('❌ No se encontró el acta de legalización');
-        return;
-      }
+      const fechaBase = fechaBaseISO || new Date().toISOString().split('T')[0];
+      const fechaBaseDate = new Date(fechaBase);
 
-      const fechaActa = actaLegalizacion.fechaCumplida || actaLegalizacion.fechaFin;
-      const fechaActaDate = new Date(fechaActa);
-      
       for (const mantenimientoId of mantenimientosACrear) {
         if (createdMaintenances.current.has(mantenimientoId)) {
           console.log(`⏩ Mantenimiento ${mantenimientoId} ya fue creado, omitiendo...`);
           continue;
         }
 
-        const mantenimientoDef = MANTENIMIENTOS_TAREAS.find(m => m.id === mantenimientoId);
+        const mantenimientoDef = MANTENIMIENTOS_TAREAS.find((m) => m.id === mantenimientoId);
         if (!mantenimientoDef) {
           console.log(`❌ Definición no encontrada para: ${mantenimientoId}`);
           continue;
         }
 
         // Calcular fecha según el tipo de mantenimiento
-        let fechaMantenimiento = new Date(fechaActaDate);
+        let fechaMantenimiento = new Date(fechaBaseDate);
         if (mantenimientoId === 'primer_mantenimiento') {
           fechaMantenimiento.setMonth(fechaMantenimiento.getMonth() + 6);
         } else if (mantenimientoId === 'segundo_mantenimiento') {
           fechaMantenimiento.setMonth(fechaMantenimiento.getMonth() + 12);
         }
 
-        // Verificar una vez más que no exista (por si acaso)
-        const mantenimientoExistente = existingTasks.find(t => t.idTarea === mantenimientoId);
+        // Verificar que no exista (por si acaso)
+        const mantenimientoExistente = existingTasks.find((t) => t.idTarea === mantenimientoId);
         if (mantenimientoExistente) {
           console.log(`⏩ ${mantenimientoDef.titulo} ya existe en la base de datos`);
           createdMaintenances.current.add(mantenimientoId);
           continue;
         }
 
-        // Crear el mantenimiento
         await addDoc(collection(db, 'proyectos', projectId, 'etapas'), {
           titulo: mantenimientoDef.titulo,
           fase: mantenimientoDef.fase,
@@ -147,9 +194,9 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
           fechaFin: fechaMantenimiento.toISOString().split('T')[0],
           cumplida: false,
           prorrogas: 0,
-          notas: ["Creado automáticamente después del acta de legalización"],
+          notas: [`Creado automáticamente después de finalizar la última etapa requerida (${fechaBase})`],
           esMantenimiento: true,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         });
 
         console.log(`✅ ${mantenimientoDef.titulo} creado para: ${fechaMantenimiento.toISOString().split('T')[0]}`);
@@ -160,68 +207,28 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
     }
   };
 
-  // Crear etapas iniciales EXCLUYENDO mantenimientos
-  useEffect(() => {
-    if (!projectId || !projectStartISO) return;
-    
-    const createInitialTasks = async () => {
-      try {
-        const q = collection(db, 'proyectos', projectId, 'etapas');
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          const sched = buildSchedule(projectStartISO, {}, HOLIDAYS_CO);
-          
-          console.log(`🔄 Creando ${DEFINICION_TAREAS.length} tareas iniciales...`);
-          
-          for (const def of DEFINICION_TAREAS) {
-            const s = sched.get(def.id);
-            await addDoc(collection(db, 'proyectos', projectId, 'etapas'), {
-              titulo: def.titulo,
-              fase: def.fase,
-              idTarea: def.id,
-              diasDuracion: def.dias,
-              fechaInicio: s.fechaInicio,
-              fechaFin: s.fechaFin,
-              cumplida: false,
-              prorrogas: 0,
-              notas: [],
-              esMantenimiento: false,
-              noAplica: false, // Inicializar como false
-              fechaNoAplica: null,
-              createdAt: new Date().toISOString()
-            });
-          }
-          console.log(`✅ ${DEFINICION_TAREAS.length} tareas iniciales creadas (sin mantenimientos)`);
-        } else {
-          console.log(`📊 ${snap.size} tareas ya existen, omitiendo creación inicial`);
-        }
-      } catch (error) {
-        console.error('Error creando tareas iniciales:', error);
-      }
-    };
+  // -------------------------------
+  // Estados / no aplica
+  // -------------------------------
 
-    createInitialTasks();
-  }, [projectId, projectStartISO]);
-
-  // Función para marcar tarea como "No Aplica"
   const markAsNotApplicable = async (tarea) => {
     if (!canMarkStateRole || !projectId) return;
-    
+
     try {
       const ref = doc(db, 'proyectos', projectId, 'etapas', tarea.idDoc);
       await updateDoc(ref, {
         noAplica: true,
-        cumplida: false, // Asegurar que no esté marcada como cumplida
+        cumplida: false,
         fechaNoAplica: new Date().toISOString().split('T')[0],
         notas: [
           ...(tarea.notas || []),
-          `Tarea marcada como "No Aplica" - ${new Date().toLocaleDateString('es-ES')}`
+          `Tarea marcada como "No Aplica" - ${new Date().toLocaleDateString('es-ES')}`,
         ],
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       });
-      
+
       console.log(`✅ Tarea "${tarea.titulo}" marcada como No Aplica`);
-      
+
       // Actualizar cache
       const projectRef = doc(db, 'proyectos', projectId);
       const projectSnap = await getDoc(projectRef);
@@ -241,7 +248,7 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
   // Función para reactivar tarea marcada como "No Aplica"
   const unmarkAsNotApplicable = async (tarea) => {
     if (!canMarkStateRole || !projectId) return;
-    
+
     try {
       const ref = doc(db, 'proyectos', projectId, 'etapas', tarea.idDoc);
       await updateDoc(ref, {
@@ -249,13 +256,13 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
         fechaNoAplica: null,
         notas: [
           ...(tarea.notas || []),
-          `Tarea reactivada - ${new Date().toLocaleDateString('es-ES')}`
+          `Tarea reactivada - ${new Date().toLocaleDateString('es-ES')}`,
         ],
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       });
-      
+
       console.log(`✅ Tarea "${tarea.titulo}" reactivada`);
-      
+
       // Actualizar cache
       const projectRef = doc(db, 'proyectos', projectId);
       const projectSnap = await getDoc(projectRef);
@@ -274,23 +281,19 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
 
   const toggleCumplida = async (tarea) => {
     if (!canMarkStateRole || !projectId || tarea.noAplica) return;
+
     try {
       const ref = doc(db, 'proyectos', projectId, 'etapas', tarea.idDoc);
       const nuevoEstado = !tarea.cumplida;
+
       await updateDoc(ref, {
         cumplida: nuevoEstado,
         fechaCumplida: nuevoEstado ? new Date().toISOString().split('T')[0] : null,
       });
-      
-      // Si se marca el acta de legalización, verificar para crear mantenimientos
-      if (nuevoEstado && tarea.idTarea === 'acta_legalizacion') {
-        console.log('📋 Acta de legalización marcada como cumplida, verificando mantenimientos...');
-        // Pequeño delay para asegurar que la actualización se haya propagado
-        setTimeout(() => {
-          checkAndCreateMaintenanceTasks(projectId, tasks);
-        }, 2000);
-      }
-      
+
+      // ✅ IMPORTANTE: ya NO se llama checkAndCreateMaintenanceTasks aquí.
+      // El onSnapshot lo ejecuta siempre con el "data" actualizado.
+
       // Actualizar cache
       const projectRef = doc(db, 'proyectos', projectId);
       const projectSnap = await getDoc(projectRef);
@@ -315,6 +318,7 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
 
   const applyProrroga = async () => {
     if (!canProrrogaRole || !projectId) return;
+
     try {
       const extra = parseInt(prorrogaDias || '0', 10);
       if (!prorrogaTarget || isNaN(extra) || extra <= 0) {
@@ -333,6 +337,7 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
       const snap = await getDocs(q);
       const extraDurations = {};
       const byId = {};
+
       snap.docs.forEach((d) => {
         const row = { idDoc: d.id, ...d.data() };
         byId[row.idTarea] = row;
@@ -340,8 +345,8 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
       });
 
       // ENCONTRAR LA POSICIÓN DE LA TAREA SELECCIONADA
-      const targetIndex = DEFINICION_TAREAS.findIndex(task => task.id === prorrogaTarget.idTarea);
-      
+      const targetIndex = DEFINICION_TAREAS.findIndex((task) => task.id === prorrogaTarget.idTarea);
+
       if (targetIndex === -1) {
         console.error('Tarea objetivo no encontrada en DEFINICION_TAREAS');
         return;
@@ -366,19 +371,18 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
       // ACTUALIZAR TODAS LAS TAREAS (excluyendo mantenimientos y no aplica)
       for (const def of DEFINICION_TAREAS) {
         const s = sched.get(def.id);
-        const docId = byId[def.id]?.id;
-        
+        const docId = byId[def.id]?.idDoc;
+
         if (docId && s) {
           const taskData = byId[def.id];
-          // Solo actualizar si no es mantenimiento y no está marcada como no aplica
+
           if (!taskData.esMantenimiento && !taskData.noAplica) {
             const updates = {
               fechaInicio: s.fechaInicio,
               fechaFin: s.fechaFin,
-              prorrogas: extraDurations[def.id]
+              prorrogas: extraDurations[def.id],
             };
 
-            // Agregar nota solo para la tarea con prórroga
             if (def.id === prorrogaTarget.idTarea) {
               updates.notas = [
                 ...(taskData.notas || []),
@@ -423,6 +427,6 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
     toggleCumplida,
     openProrroga,
     markAsNotApplicable,
-    unmarkAsNotApplicable
+    unmarkAsNotApplicable,
   };
 };

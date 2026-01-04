@@ -20,7 +20,7 @@ import { realExpensesService } from "../services/realExpensesService";
 import AddTramiteModal from "../components/realExpenses/AddTramiteModal";
 import AddViaticoModal from "../components/realExpenses/AddViaticoModal";
 
-// ✅ NUEVO: util de export
+
 import { exportRealExpensesPhaseReport } from "../utils/exportRealExpensesPhaseReport";
 
 function formatCurrency(value) {
@@ -33,7 +33,7 @@ function formatCurrency(value) {
 }
 
 /**
- * ✅ Header en columna:
+ * Header en columna:
  * - Línea 1: Punto + Título
  * - Línea 2: Total (debajo del título)
  * - Línea 3: Toggle (debajo del total)
@@ -591,7 +591,7 @@ export default function RealExpensesScreen() {
               { text: "Viático", onPress: () => setShowViaticoModal(true) },
             ];
 
-            // ✅ Trámite solo Admin/Administrativo/Ingeniero
+            // Trámite solo Admin/Administrativo/Ingeniero
             if (["Administrador", "Administrativo", "Ingeniero"].includes(role)) {
               options.push({
                 text: "Trámite",

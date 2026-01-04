@@ -1,12 +1,12 @@
 // components/realExpenses/AddTramiteModal.js
 import { useState } from "react";
 import {
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function AddTramiteModal({
@@ -21,6 +21,12 @@ export default function AddTramiteModal({
 
   if (!visible) return null;
 
+  const resetForm = () => {
+  setConcepto("");
+  setValor("");
+  setNotas("");
+};
+
   const handleSave = () => {
     if (!concepto.trim()) return;
     onConfirm({
@@ -28,6 +34,8 @@ export default function AddTramiteModal({
       valor,
       notas,
     });
+
+    resetForm();
   };
 
   return (
@@ -63,13 +71,22 @@ export default function AddTramiteModal({
           />
 
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelText}>Cancelar</Text>
+            <TouchableOpacity
+            style={styles.cancelBtn}
+            onPress={() => {
+              resetForm();   
+              onClose();
+              }}
+            >
+            <Text style={styles.cancelText}>Cancelar</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.saveBtn, loading && { opacity: 0.6 }]}
-              onPress={handleSave}
+              onPress={() => {
+                handleSave();
+                resetForm();
+              }}
               disabled={loading}
             >
               <Text style={styles.saveText}>

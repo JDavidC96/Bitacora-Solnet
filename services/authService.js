@@ -1,7 +1,7 @@
 // services/authService.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase/firebaseConfig';
 
 export const authService = {
@@ -9,18 +9,16 @@ export const authService = {
    * Registrar último login en usuarios_permitidos
    */
   registerLastLogin: async (user, role) => {
-    try {
-      // Actualizar último login en el usuario
-      await setDoc(doc(db, 'usuarios_permitidos', user.uid), {
-        ultimoLogin: new Date(),
-        email: user.email,
-        rol: role
-      }, { merge: true });
+  try {
+    await updateDoc(doc(db, 'usuarios_permitidos', user.uid), {
+      ultimoLogin: serverTimestamp(),
+      lastActivity: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error registrando último login:', error);
+  }
+},
 
-    } catch (error) {
-      console.error('Error registrando último login:', error);
-    }
-  },
 
   /**
    * Obtener rol del usuario desde Firestore

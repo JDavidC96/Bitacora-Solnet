@@ -1,143 +1,266 @@
 // screens/CompletedProjectsScreen.js
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
-import FABMenu from '../components/shared/FABMenu';
+// Firebase
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase/firebaseConfig';
+
+// Context + hooks
 import { useUser } from '../context/UserContext';
 import { useCompletedProjects } from '../hooks/useCompletedProjects';
+import { useMultiModal } from '../hooks/useModal';
 import { usePersonal } from '../hooks/usePersonal';
-import personalService from '../services/personalService';
+
+// Services
+import { personalService } from '../services/personalService';
+
+// Components (mismos de Home)
+import AssignPersonModal from '../components/home/AssignPersonModal';
+import ProjectList from '../components/home/ProjectList';
+import SearchModal from '../components/home/SearchModal';
+import FABMenu from '../components/shared/FABMenu';
 
 export default function CompletedProjectsScreen() {
   const router = useRouter();
-  const { role } = useUser();
+  const { role, user } = useUser();
 
-  const { completedProjects, loading, error } = useCompletedProjects();
-  const { personal } = usePersonal();
+  const { completedProjects, loading: projectsLoading, error: projectsError } = useCompletedProjects();
+  const { personal, loading: personalLoading } = usePersonal();
 
   const [selectedProject, setSelectedProject] = useState(null);
-  const [assignVisible, setAssignVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+  const [myPersonalId, setMyPersonalId] = useState(null);
+  const [myPersonalLoading, setMyPersonalLoading] = useState(true);
 
-  const handleAssign = (project) => {
+  const { modals, openModal, closeModal, closeAllModals } = useMultiModal({
+    assign: false,
+    actions: false, // lo dejamos por compatibilidad, pero no lo usamos aquí
+    search: false,
+  });
+
+  // Permisos idénticos a Home
+  const canManage = useMemo(() => ['Administrador', 'Ingeniero'].includes(role), [role]);
+  const canSelfAssign = useMemo(() => ['Tecnico', 'Supervisor'].includes(role), [role]);
+
+  // Leer personalId desde usuarios_permitidos (igual Home)
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!user?.uid) return;
+        const ref = doc(db, 'usuarios_permitidos', user.uid);
+        const snap = await getDoc(ref);
+        const pid = snap.exists() ? snap.data()?.personalId : null;
+
+        if (!cancelled) setMyPersonalId(pid || null);
+      } catch (e) {
+        console.error('Error leyendo personalId del usuario:', e);
+        if (!cancelled) setMyPersonalId(null);
+      } finally {
+        if (!cancelled) setMyPersonalLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  const myPersona = useMemo(() => {
+    if (!myPersonalId) return null;
+    return (personal || []).find((p) => p.id === myPersonalId) || null;
+  }, [personal, myPersonalId]);
+
+  // --- Activity tracking (igual Home) ---
+  const markAssignActivity = async () => {
+    if (!user?.uid) return;
+    await updateDoc(doc(db, 'usuarios_permitidos', user.uid), {
+      ultimoLogin: serverTimestamp(),
+      lastActivity: serverTimestamp(),
+    });
+  };
+
+  const markUnassignActivity = async () => {
+    if (!user?.uid) return;
+    await updateDoc(doc(db, 'usuarios_permitidos', user.uid), {
+      lastActivity: serverTimestamp(),
+    });
+  };
+
+  // --- Navegación ---
+  const handleProjectPress = (project) => {
+    router.push({
+      pathname: '/NoteScreen',
+      params: {
+        id: project.id,
+        title: project.title || 'Proyecto',
+        readOnly: 'true',
+        isCompleted: 'true',
+      },
+    });
+  };
+
+  // --- Asignación Admin/Ing (igual Home) ---
+  const handleAssignPerson = async (personId) => {
+    if (!selectedProject || !personId) return;
+
+    setLoading(true);
+    try {
+      const persona = (personal || []).find((p) => p.id === personId);
+      if (!persona) throw new Error('Persona no encontrada');
+
+      await personalService.assignToProject(persona.id, {
+        id: selectedProject.id,
+        title: selectedProject.title,
+      });
+
+      closeAllModals();
+      setSelectedProject(null);
+      Alert.alert('Éxito', `${persona.nombre} asignado al proyecto`);
+    } catch (error) {
+      console.error('Error asignando personal:', error);
+      Alert.alert('Error', error.message || 'No se pudo asignar el personal');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLiberarPersona = async (persona) => {
+    if (!persona) return;
+
+    Alert.alert('Liberar personal', `¿Liberar a ${persona.nombre} del proyecto?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Liberar',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await personalService.liberar(persona.id);
+            Alert.alert('Éxito', `${persona.nombre} liberado del proyecto`);
+          } catch (error) {
+            console.error('Error liberando personal:', error);
+            Alert.alert('Error', 'No se pudo liberar al personal');
+          }
+        },
+      },
+    ]);
+  };
+
+  // --- Auto-asignación Técnico/Supervisor (igual Home) ---
+  const handleSelfAssign = async (project) => {
+    if (!canSelfAssign) return;
+    if (myPersonalLoading) return Alert.alert('Espera', 'Cargando tu perfil...');
+    if (!myPersona?.id) return Alert.alert('Error', 'No se encontró tu personalId (usuarios_permitidos.personalId).');
+
+    setLoading(true);
+    try {
+      await personalService.selfAssignToProject(myPersona.id, { id: project.id, title: project.title });
+      await markAssignActivity();
+      Alert.alert('Éxito', 'Te asignaste al proyecto.');
+    } catch (e) {
+      console.error('Error auto-asignando:', e);
+      Alert.alert('Error', e?.message || 'No se pudo asignar.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmSelfUnassign = (project) => {
+    Alert.alert('Liberar personal', '¿Liberarte del proyecto?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Liberar',
+        style: 'destructive',
+        onPress: () => handleSelfUnassign(project),
+      },
+    ]);
+  };
+
+  const handleSelfUnassign = async () => {
+    if (!canSelfAssign) return;
+    if (myPersonalLoading) return Alert.alert('Espera', 'Cargando tu perfil...');
+    if (!myPersona?.id) return Alert.alert('Error', 'No se encontró tu personalId (usuarios_permitidos.personalId).');
+
+    setLoading(true);
+    try {
+      await personalService.liberar(myPersona.id);
+      await markUnassignActivity();
+      Alert.alert('Éxito', 'Te liberaste del proyecto.');
+    } catch (e) {
+      console.error('Error auto-liberando:', e);
+      Alert.alert('Error', e?.message || 'No se pudo liberar.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Long press (igual Home) ---
+  const handleProjectLongPress = (project) => {
     setSelectedProject(project);
-    setAssignVisible(true);
+
+    // Técnico/Supervisor: self actions
+    if (canSelfAssign) {
+      if (!myPersona?.id) {
+        return Alert.alert('Error', 'No se encontró tu personalId (usuarios_permitidos.personalId).');
+      }
+
+      const iAmAssignedHere =
+        myPersona.proyectoId === project.id || myPersona.proyectoAsignado === project.title;
+
+      Alert.alert(project.title || 'Proyecto', 'Acción', [
+        !iAmAssignedHere
+          ? { text: 'Asignarme a este proyecto', onPress: () => handleSelfAssign(project) }
+          : { text: 'Liberarme', style: 'destructive', onPress: () => confirmSelfUnassign(project) },
+        { text: 'Cancelar', style: 'cancel' },
+      ]);
+
+      return;
+    }
+
+    // Admin/Ingeniero: abrir modal de asignación directo
+    if (canManage) {
+      openModal('assign');
+    }
   };
 
-  const handleLiberar = async (persona) => {
-  if (!persona) return;
+  // Ajustar data para que el card se vea coherente (100%)
+  const completedWithProgress = useMemo(() => {
+    const list = Array.isArray(completedProjects) ? completedProjects : [];
+    return list
+      .map((p) => ({
+        ...p,
+        progress: 1, // 100%
+        retrasada: false,
+      }))
+      .sort((a, b) => {
+        const dateA = a.completedAt || a.createdAt || a.startDate || 0;
+        const dateB = b.completedAt || b.createdAt || b.startDate || 0;
+        return new Date(dateB) - new Date(dateA);
+      });
+  }, [completedProjects]);
 
-  try {
-    await personalService.liberar(persona.id);
-    alert(`${persona.nombre} ha sido liberado del proyecto`);
-  } catch (err) {
-    alert('Error liberando personal');
-    console.log(err);
-  }
-};
-
-
-  const ProjectCardCompleted = ({ project }) => {
-    const asignados = personal.filter(p => p.proyectoAsignado === project.title);
-
+  // Render loading/error
+  if (projectsError) {
     return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() =>
-          router.push({
-            pathname: '/NoteScreen',
-            params: { 
-              id: project.id,
-              title: project.title,
-              readOnly: 'true',
-              isCompleted: 'true'
-            }
-          })
-        }
-      >
-        {/* Header */}
-        <View style={styles.rowBetween}>
-          <Text style={styles.cardTitle}>{project.title}</Text>
-
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>✔ Completado</Text>
-          </View>
-        </View>
-
-        {/* Ubicación */}
-        {project.ubicacion ? (
-          <Text style={styles.location}>📍 {project.ubicacion}</Text>
-        ) : (
-          <Text style={styles.locationMuted}>📍 (Sin ubicación)</Text>
-        )}
-
-        {/* Fecha de finalización */}
-        {project.completedAt && (
-          <Text style={styles.completedDate}>
-            Finalizado: {new Date(project.completedAt).toLocaleDateString()}
-          </Text>
-        )}
-
-        {/* Progreso */}
-        <View style={styles.progressBar}>
-          <View style={styles.progressFill} />
-        </View>
-        <Text style={styles.progressText}>100% Completado</Text>
-
-        {/* Personal asignado */}
-        <View style={styles.personalContainer}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.personalTitle}>👥 Personal asignado</Text>
-
-            {canManage && (
-              <TouchableOpacity onPress={() => handleAssign(project)}>
-                <Text style={styles.assignButton}>Asignar</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {asignados.length > 0 ? (
-            asignados.map(p => (
-              <View key={p.id} style={styles.personItem}>
-                <View>
-                  <Text style={styles.personName}>{p.nombre}</Text>
-                  <Text style={styles.personRole}>{p.cargo}</Text>
-                </View>
-
-                {canManage && (
-                  <TouchableOpacity 
-                    style={styles.liberarBtn}
-                    onPress={() => handleLiberar(p)}
-                  >
-                    <Text style={styles.liberarText}>Liberar</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))
-          ) : (
-            <Text style={styles.noPersonal}>Sin personal asignado</Text>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF7A00" />
-        <Text style={styles.loadingText}>Cargando proyectos completados...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Error cargando proyectos</Text>
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Error cargando proyectos completados</Text>
+        <Text style={styles.errorSubtext}>{projectsError.message}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => router.back()}>
+          <Text style={styles.retryButtonText}>Volver</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -145,8 +268,6 @@ export default function CompletedProjectsScreen() {
   return (
     <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
-
-        {/* Fondo con imagen suave */}
         <Image
           source={require('../assets/images/terrall.png')}
           style={styles.bgImage}
@@ -154,52 +275,76 @@ export default function CompletedProjectsScreen() {
         />
 
         <View style={styles.container}>
-
-          {/* Header similar a Home */}
           <View style={styles.header}>
-            <Text style={styles.title}>Proyectos Completados</Text>
-            <Text style={styles.subtitle}>
-              {completedProjects.length} proyecto
-              {completedProjects.length !== 1 ? 's' : ''} finalizado
-              {completedProjects.length !== 1 ? 's' : ''}
-            </Text>
+            <View>
+              <Text style={styles.title}>Proyectos Completados</Text>
+              <Text style={styles.subtitle}>
+                {completedWithProgress.length} proyecto{completedWithProgress.length !== 1 ? 's' : ''} finalizado
+                {completedWithProgress.length !== 1 ? 's' : ''}
+              </Text>
+            </View>
+
+            {!!role && (
+              <View style={styles.userChip}>
+                <Text style={styles.userChipText}>{role}</Text>
+              </View>
+            )}
           </View>
 
-          {/* Lista */}
-          <FlatList
-            data={completedProjects}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <ProjectCardCompleted project={item} />
-            )}
-            contentContainerStyle={{ paddingBottom: 100 }}
-          />
+          {(projectsLoading || personalLoading) && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#FF7A00" />
+              <Text style={styles.loadingText}>Cargando...</Text>
+            </View>
+          )}
 
-          {/* FAB MENU */}
+          {!projectsLoading && (
+            <ProjectList
+              projects={completedWithProgress}
+              personal={personal}
+              viewerRole={role}
+              viewerPersonalId={myPersonalId}
+              canManage={canManage}
+              onProjectPress={handleProjectPress}
+              onProjectLongPress={handleProjectLongPress}
+              onLiberarPersona={handleLiberarPersona}
+              loading={false}
+            />
+          )}
+
+          {/* FAB: buscar + volver al home */}
           <FABMenu
             showHome={true}
-            showSearch={true}  
+            showSearch={true}
             onHome={() => router.push('/HomeScreen')}
-            onSearch={() => console.log("Buscar completados")}
-            onCompleted={() => router.back()}  // abrir activos
+            onSearch={() => openModal('search')}
+            mainIcon="menu"
           />
 
-          {/* MODAL ASIGNAR */}
-          onAssign={(id) => {
-  setAssignVisible(false);
+          {/* Modal asignación (Admin/Ing) */}
+          <AssignPersonModal
+            visible={modals.assign}
+            project={selectedProject}
+            personal={personal}
+            onClose={closeAllModals}
+            onAssign={handleAssignPerson}
+            loading={loading}
+          />
 
-  const persona = personal.find(p => p.id === id);
-  if (!persona) return;
-
-  personalService.assignToProject(persona.id, selectedProject.id);
-}}
-
+          {/* Modal búsqueda */}
+          <SearchModal
+            visible={modals.search}
+            onClose={closeAllModals}
+            projects={completedWithProgress}
+            personal={personal}
+            onProjectPress={handleProjectPress}
+            onProjectLongPress={handleProjectLongPress}
+          />
         </View>
       </View>
     </LinearGradient>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -212,163 +357,41 @@ const styles = StyleSheet.create({
 
   header: {
     marginBottom: 16,
-  },
-
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#111827',
-  },
-
-  subtitle: {
-    marginTop: 4,
-    color: '#6B7280',
-    fontSize: 13,
-  },
-
-  card: {
-    backgroundColor: '#111827ee',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.32)',
-  },
-
-  rowBetween: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 10,
   },
 
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#F9FAFB',
-  },
+  title: { fontSize: 24, fontWeight: '800', color: '#111827' },
+  subtitle: { marginTop: 4, color: '#6B7280', fontSize: 13 },
 
-  badge: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    backgroundColor: 'rgba(34,197,94,0.2)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#22C55E',
-  },
-
-  badgeText: {
-    color: '#22C55E',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  location: {
-    color: '#93C5FD',
-    fontSize: 13,
-    marginTop: 4,
-  },
-
-  locationMuted: {
-    color: '#6B7280',
-    fontSize: 13,
-    marginTop: 4,
-  },
-
-  completedDate: {
-    marginTop: 6,
-    color: '#9CA3AF',
-    fontSize: 12,
-  },
-
-  progressBar: {
-    height: 8,
-    backgroundColor: '#1F2937',
+  userChip: {
+    backgroundColor: '#111827',
     borderRadius: 999,
-    marginTop: 10,
-    overflow: 'hidden',
-  },
-
-  progressFill: {
-    height: '100%',
-    width: '100%',
-    backgroundColor: '#22C55E',
-  },
-
-  progressText: {
-    color: '#E5E7EB',
-    fontSize: 12,
-    marginTop: 4,
-  },
-
-  personalContainer: {
-    marginTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#374151',
-    paddingTop: 10,
-  },
-
-  personalTitle: {
-    color: '#F9FAFB',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  assignButton: {
-    color: '#3B82F6',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
-  personItem: {
-    marginTop: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  personName: {
-    color: '#F3F4F6',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-
-  personRole: {
-    color: '#9CA3AF',
-    fontSize: 12,
-  },
-
-  liberarBtn: {
-    backgroundColor: 'rgba(239,68,68,0.15)',
-    paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#EF4444',
+    paddingVertical: 6,
   },
+  userChipText: { color: '#F9FAFB', fontSize: 12, fontWeight: '700' },
 
-  liberarText: {
-    color: '#F87171',
-    fontWeight: '600',
-    fontSize: 12,
-  },
+  loadingContainer: { paddingVertical: 24, alignItems: 'center' },
+  loadingText: { marginTop: 10, color: '#4B5563' },
 
-  noPersonal: {
-    color: '#9CA3AF',
-    fontSize: 12,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-
-  loadingContainer: {
+  errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 18,
   },
-
-  loadingText: {
-    marginTop: 12,
-    color: '#4B5563',
+  errorText: { fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: 6, textAlign: 'center' },
+  errorSubtext: { color: '#6B7280', textAlign: 'center', marginBottom: 12 },
+  retryButton: {
+    backgroundColor: '#111827',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
+  retryButtonText: { color: '#FFF', fontWeight: '700' },
 
   bgImage: {
     position: 'absolute',

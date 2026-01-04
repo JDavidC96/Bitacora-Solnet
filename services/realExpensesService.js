@@ -113,13 +113,19 @@ export const realExpensesService = {
   },
 
   /* ============================================================
-   * Mano de obra real (agregado por horas * tarifa)
-   * - Tarifa por usuario (personalId) tiene prioridad
-   * - Fallback por rol
-   * - Fallback final "default" en tarifas por rol
+   * Mano de obra real con múltiples tipos de horas
    * ============================================================ */
   async getManoObraReal(projectId) {
-    const EXTRA_FACTOR = 1.25;
+    const FACTORS = {
+      normal: 1.0,
+      extra: 1.25,
+      nocturnal: 1.35,
+      extraNocturnal: 1.75,
+      dominical: 1.75,
+      dominicalNocturnal: 2.10,
+      dominicalExtra: 2.00,
+      dominicalExtraNocturnal: 2.50,
+    };
 
     const horasSnap = await getDocs(
       query(collection(db, "horas_personal"), where("proyectoId", "==", projectId))
@@ -138,19 +144,49 @@ export const realExpensesService = {
           personalId: r.personalId,
           nombre: r.nombre || "",
           rol: r.rol || null,
+
           horasNormales: 0,
           horasExtras: 0,
+          horasNocturnas: 0,
+          horasExtrasNocturnas: 0,
+
+          horasDominicales: 0,
+          horasDominicalesNocturnas: 0,
+          horasExtrasDominicales: 0,
+          horasExtrasDominicalesNocturnas: 0,
+
           totalHoras: 0,
         });
       }
 
       const item = personasMap.get(r.personalId);
+
       const hn = Number(r.horasNormales || 0);
       const he = Number(r.horasExtras || 0);
-      const th = Number(r.totalHoras || (hn + he) || 0);
+      const hnn = Number(r.horasNocturnas || 0);
+      const hen = Number(r.horasExtrasNocturnas || 0);
+
+      const hd = Number(r.horasDominicales || 0);
+      const hdn = Number(r.horasDominicalesNocturnas || 0);
+      const hde = Number(r.horasExtrasDominicales || 0);
+      const hden = Number(r.horasExtrasDominicalesNocturnas || 0);
+
+      const th = Number(
+        r.totalHoras ||
+          (hn + he + hnn + hen + hd + hdn + hde + hden) ||
+          0
+      );
 
       item.horasNormales += hn;
       item.horasExtras += he;
+      item.horasNocturnas += hnn;
+      item.horasExtrasNocturnas += hen;
+
+      item.horasDominicales += hd;
+      item.horasDominicalesNocturnas += hdn;
+      item.horasExtrasDominicales += hde;
+      item.horasExtrasDominicalesNocturnas += hden;
+
       item.totalHoras += th;
 
       if (r.rol && !item.rol) item.rol = r.rol;
@@ -169,7 +205,7 @@ export const realExpensesService = {
       const data = d.data() || {};
       rolMap.set(d.id, data.rol || "Operario");
       nombreMap.set(d.id, data.nombre || data.fullName || "");
-      tarifaMap.set(d.id, Number(data.tarifaHora || 0)); // ✅ ÚNICA FUENTE
+      tarifaMap.set(d.id, Number(data.tarifaHora || 0));
     });
 
     // Completar rol/nombre faltante
@@ -190,24 +226,60 @@ export const realExpensesService = {
 
       const hn = Number(p.horasNormales || 0);
       const he = Number(p.horasExtras || 0);
-      const th = Number(p.totalHoras || (hn + he) || 0);
+      const hnn = Number(p.horasNocturnas || 0);
+      const hen = Number(p.horasExtrasNocturnas || 0);
 
-      const costoNormal = hn * tarifaHora;
-      const costoExtra = he * tarifaHora * EXTRA_FACTOR;
-      const costoTotal = costoNormal + costoExtra;
+      const hd = Number(p.horasDominicales || 0);
+      const hdn = Number(p.horasDominicalesNocturnas || 0);
+      const hde = Number(p.horasExtrasDominicales || 0);
+      const hden = Number(p.horasExtrasDominicalesNocturnas || 0);
+
+      const th = Number(p.totalHoras || (hn + he + hnn + hen + hd + hdn + hde + hden) || 0);
+
+      const costoNormal = hn * tarifaHora * FACTORS.normal;
+      const costoExtra = he * tarifaHora * FACTORS.extra;
+
+      const costoNocturno = hnn * tarifaHora * FACTORS.nocturnal;
+      const costoExtraNocturno = hen * tarifaHora * FACTORS.extraNocturnal;
+
+      const costoDominical = hd * tarifaHora * FACTORS.dominical;
+      const costoDominicalNocturno = hdn * tarifaHora * FACTORS.dominicalNocturnal;
+
+      const costoExtraDominical = hde * tarifaHora * FACTORS.dominicalExtra;
+      const costoExtraDominicalNocturno = hden * tarifaHora * FACTORS.dominicalExtraNocturnal;
+
+      const costoTotal =
+        costoNormal +
+        costoExtra +
+        costoNocturno +
+        costoExtraNocturno +
+        costoDominical +
+        costoDominicalNocturno +
+        costoExtraDominical +
+        costoExtraDominicalNocturno;
 
       totalManoObra += costoTotal;
       totalHorasManoObra += th;
       totalHorasNormales += hn;
-      totalHorasExtras += he;
+
+      // para "extras" sumamos todo lo que NO es normal diurna
+      totalHorasExtras += (he + hen + hd + hdn + hde + hden);
 
       return {
         ...p,
         tarifaHora,
+
         costoNormal,
         costoExtra,
+        costoNocturno,
+        costoExtraNocturno,
+        costoDominical,
+        costoDominicalNocturno,
+        costoExtraDominical,
+        costoExtraDominicalNocturno,
+
         costoTotal,
-        extraFactor: EXTRA_FACTOR,
+        factors: FACTORS,
         tipo: "manoObra",
         fase: "fase3",
       };
@@ -219,7 +291,7 @@ export const realExpensesService = {
       totalHorasManoObra,
       totalHorasNormales,
       totalHorasExtras,
-      extraFactor: EXTRA_FACTOR,
+      factors: FACTORS,
     };
   },
 
@@ -396,7 +468,7 @@ export const realExpensesService = {
       totalHorasManoObra: manoObraReal.totalHorasManoObra,
       totalHorasNormales: manoObraReal.totalHorasNormales,
       totalHorasExtras: manoObraReal.totalHorasExtras,
-      extraFactor: manoObraReal.extraFactor,
+      factors: manoObraReal.factors,
     };
   },
 };

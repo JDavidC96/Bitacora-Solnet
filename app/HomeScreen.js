@@ -18,6 +18,7 @@ import { db } from '../firebase/firebaseConfig';
 // Hooks personalizados
 import { useUser } from '../context/UserContext';
 import { useBackHandler } from '../hooks/useBackHandler';
+import { useCompletedProjects } from '../hooks/useCompletedProjects';
 import { useMultiModal } from '../hooks/useModal';
 import { useNotifications } from '../hooks/useNotifications';
 import { usePersonal } from '../hooks/usePersonal';
@@ -53,6 +54,7 @@ export default function HomeScreen() {
   // Hooks personalizados
   const { projects, loading: projectsLoading, error: projectsError } = useProjects();
   const { personal, loading: personalLoading } = usePersonal();
+  const { completedProjects } = useCompletedProjects();
   const { modals, openModal, closeModal, closeAllModals } = useMultiModal({
     add: false,
     edit: false,
@@ -101,20 +103,24 @@ const myPersona = useMemo(() => {
 
   // Total kW AC instalados (suma de todos los proyectos)
   const totalKwAc = useMemo(() => {
-    const list = Array.isArray(projects) ? projects : [];
-    const total = list.reduce((acc, p) => {
-      const kw = Number(
+  const allProjects = [
+    ...(Array.isArray(projects) ? projects : []),
+    ...(Array.isArray(completedProjects) ? completedProjects : []),
+  ];
+
+  return allProjects.reduce((acc, p) => {
+    const kw =
+      Number(
         p?.potenciaAcKw ??
         p?.potenciaACKw ??
         p?.potenciaAC ??
         p?.potenciaAc ??
         0
       );
-      return acc + (isNaN(kw) ? 0 : kw);
-    }, 0);
 
-    return total;
-  }, [projects]);
+    return acc + (isNaN(kw) ? 0 : kw);
+  }, 0);
+}, [projects, completedProjects]);
 
   // ========== HANDLERS ==========
 
@@ -449,16 +455,17 @@ const markUnassignActivity = async () => {
           )}
 
           {/* Botones flotantes */}
-          {canManage && !projectsLoading && (
-            <FABMenu
-              showSearch={true}
-              showAdd={true}
-              showCompleted={true}
-              onAdd={() => openModal('add')}
-              onSearch={() => openModal('search')}
-              onCompleted={() => router.push('/CompletedProjectsScreen')}
-            />  
-          )}
+          {!projectsLoading && (
+  <FABMenu
+    showSearch={true}
+    showCompleted={true}
+    showAdd={canManage}        
+    onAdd={() => openModal('add')}
+    onSearch={() => openModal('search')}
+    onCompleted={() => router.push('/CompletedProjectsScreen')}
+  />
+)}
+
 
           {/* ========== MODALES ========== */}
 

@@ -7,8 +7,26 @@ function generateTimestamp() {
   return now.toISOString().replace(/[:.]/g, "-");
 }
 
+function breakdown(r) {
+  const hn = Number(r.horasNormales || 0);
+  const he = Number(r.horasExtras || 0);
+
+  const hnn = Number(r.horasNocturnas || 0);
+  const hen = Number(r.horasExtrasNocturnas || 0);
+
+  const hd = Number(r.horasDominicales || 0);
+  const hdn = Number(r.horasDominicalesNocturnas || 0);
+
+  const hde = Number(r.horasExtrasDominicales || 0);
+  const hden = Number(r.horasExtrasDominicalesNocturnas || 0);
+
+  const total = Number(r.totalHoras || 0) || hn + he + hnn + hen + hd + hdn + hde + hden;
+
+  return { hn, he, hnn, hen, hd, hdn, hde, hden, total };
+}
+
 /**
- * Agrupar horas por persona
+ * Agrupar horas por persona (con desglose completo)
  */
 function agruparPorPersona(registros) {
   const map = new Map();
@@ -21,65 +39,116 @@ function agruparPorPersona(registros) {
         persona: key,
         horasNormales: 0,
         horasExtras: 0,
+        horasNocturnas: 0,
+        horasExtrasNocturnas: 0,
+        horasDominicales: 0,
+        horasDominicalesNocturnas: 0,
+        horasExtrasDominicales: 0,
+        horasExtrasDominicalesNocturnas: 0,
         total: 0,
       });
     }
 
+    const b = breakdown(r);
     const item = map.get(key);
-    item.horasNormales += r.horasNormales ?? 0;
-    item.horasExtras += r.horasExtras ?? 0;
-    item.total += r.totalHoras ?? 0;
+
+    item.horasNormales += b.hn;
+    item.horasExtras += b.he;
+    item.horasNocturnas += b.hnn;
+    item.horasExtrasNocturnas += b.hen;
+    item.horasDominicales += b.hd;
+    item.horasDominicalesNocturnas += b.hdn;
+    item.horasExtrasDominicales += b.hde;
+    item.horasExtrasDominicalesNocturnas += b.hden;
+    item.total += b.total;
   });
 
   return Array.from(map.values());
 }
 
 /**
- * Agrupar horas por proyecto
+ * Agrupar horas por proyecto (con desglose completo)
  */
 function agruparPorProyecto(registros) {
   const map = new Map();
 
   registros.forEach((r) => {
-    const key = r.proyectoId ?? r.destino ?? "sin-proyecto";
+    const key = r.destino ?? "Sin destino";
 
     if (!map.has(key)) {
       map.set(key, {
         proyecto: key,
         horasNormales: 0,
         horasExtras: 0,
+        horasNocturnas: 0,
+        horasExtrasNocturnas: 0,
+        horasDominicales: 0,
+        horasDominicalesNocturnas: 0,
+        horasExtrasDominicales: 0,
+        horasExtrasDominicalesNocturnas: 0,
         total: 0,
       });
     }
 
+    const b = breakdown(r);
     const item = map.get(key);
-    item.horasNormales += r.horasNormales ?? 0;
-    item.horasExtras += r.horasExtras ?? 0;
-    item.total += r.totalHoras ?? 0;
+
+    item.horasNormales += b.hn;
+    item.horasExtras += b.he;
+    item.horasNocturnas += b.hnn;
+    item.horasExtrasNocturnas += b.hen;
+    item.horasDominicales += b.hd;
+    item.horasDominicalesNocturnas += b.hdn;
+    item.horasExtrasDominicales += b.hde;
+    item.horasExtrasDominicalesNocturnas += b.hden;
+    item.total += b.total;
   });
 
   return Array.from(map.values());
 }
 
 /**
- * Calcular totales globales
+ * Totales globales (con desglose completo)
  */
 function calcularTotales(registros) {
-  let normales = 0;
-  let extras = 0;
+  let horasNormales = 0;
+  let horasExtras = 0;
+  let horasNocturnas = 0;
+  let horasExtrasNocturnas = 0;
+  let horasDominicales = 0;
+  let horasDominicalesNocturnas = 0;
+  let horasExtrasDominicales = 0;
+  let horasExtrasDominicalesNocturnas = 0;
   let total = 0;
 
   registros.forEach((r) => {
-    normales += r.horasNormales ?? 0;
-    extras += r.horasExtras ?? 0;
-    total += r.totalHoras ?? 0;
+    const b = breakdown(r);
+    horasNormales += b.hn;
+    horasExtras += b.he;
+    horasNocturnas += b.hnn;
+    horasExtrasNocturnas += b.hen;
+    horasDominicales += b.hd;
+    horasDominicalesNocturnas += b.hdn;
+    horasExtrasDominicales += b.hde;
+    horasExtrasDominicalesNocturnas += b.hden;
+    total += b.total;
   });
 
-  return { normales, extras, total };
+  return {
+    horasNormales,
+    horasExtras,
+    horasNocturnas,
+    horasExtrasNocturnas,
+    horasDominicales,
+    horasDominicalesNocturnas,
+    horasExtrasDominicales,
+    horasExtrasDominicalesNocturnas,
+    total,
+  };
 }
 
 /**
- * Exportación PRO en CSV
+ * Exportación PRO en CSV (separado por ; para Excel)
  */
 export async function exportReporteGeneralExcel(registros) {
   try {
@@ -88,86 +157,121 @@ export async function exportReporteGeneralExcel(registros) {
     }
 
     // ============================
-    // 1) SECCIÓN DETALLE
+    // 1) DETALLE
     // ============================
     const headersDetalle = [
       "Persona",
       "FechaInicio",
       "FechaFin",
       "HorasNormales",
-      "HorasExtras",
+      "HorasExtrasDiurnas",
+      "HorasNocturnas",
+      "HorasExtrasNocturnas",
+      "HorasDominicalesFestivas",
+      "HorasDominicalesFestivasNocturnas",
+      "HorasExtrasDominicalesFestivas",
+      "HorasExtrasDominicalesFestivasNocturnas",
       "TotalHoras",
       "Destino",
       "TipoAsignacion",
       "ProyectoId",
     ].join(";");
 
-    const detalleRows = registros.map((r) =>
-      [
+    const detalleRows = registros.map((r) => {
+      const b = breakdown(r);
+
+      return [
         r.nombre ?? "",
         r.fechaInicio ?? "",
         r.fechaFin ?? "",
-        r.horasNormales ?? 0,
-        r.horasExtras ?? 0,
-        r.totalHoras ?? 0,
+
+        b.hn,
+        b.he,
+        b.hnn,
+        b.hen,
+        b.hd,
+        b.hdn,
+        b.hde,
+        b.hden,
+
+        b.total,
         r.destino ?? "",
         r.tipoAsignacion ?? "",
         r.proyectoId ?? "",
-      ].join(";")
-    );
+      ].join(";");
+    });
 
-    const bloqueDetalle = [
-      "DETALLE DE REGISTROS",
-      headersDetalle,
-      ...detalleRows,
-      "",
-    ].join("\n");
+    const bloqueDetalle = ["DETALLE DE REGISTROS", headersDetalle, ...detalleRows, ""].join("\n");
 
     // ============================
-    // 2) SECCIÓN TOTALES POR PERSONA
+    // 2) TOTALES POR PERSONA
     // ============================
     const personas = agruparPorPersona(registros);
 
     const headersPersonas = [
       "Persona",
       "HorasNormales",
-      "HorasExtras",
+      "HorasExtrasDiurnas",
+      "HorasNocturnas",
+      "HorasExtrasNocturnas",
+      "HorasDominicalesFestivas",
+      "HorasDominicalesFestivasNocturnas",
+      "HorasExtrasDominicalesFestivas",
+      "HorasExtrasDominicalesFestivasNocturnas",
       "TotalHoras",
     ].join(";");
 
     const personasRows = personas.map((p) =>
-      [p.persona, p.horasNormales, p.horasExtras, p.total].join(";")
+      [
+        p.persona,
+        p.horasNormales,
+        p.horasExtras,
+        p.horasNocturnas,
+        p.horasExtrasNocturnas,
+        p.horasDominicales,
+        p.horasDominicalesNocturnas,
+        p.horasExtrasDominicales,
+        p.horasExtrasDominicalesNocturnas,
+        p.total,
+      ].join(";")
     );
 
-    const bloquePersonas = [
-      "TOTALES POR PERSONA",
-      headersPersonas,
-      ...personasRows,
-      "",
-    ].join("\n");
+    const bloquePersonas = ["TOTALES POR PERSONA", headersPersonas, ...personasRows, ""].join("\n");
 
     // ============================
-    // 3) SECCIÓN TOTALES POR PROYECTO
+    // 3) TOTALES POR PROYECTO
     // ============================
     const proyectos = agruparPorProyecto(registros);
 
     const headersProyectos = [
       "Proyecto",
       "HorasNormales",
-      "HorasExtras",
+      "HorasExtrasDiurnas",
+      "HorasNocturnas",
+      "HorasExtrasNocturnas",
+      "HorasDominicalesFestivas",
+      "HorasDominicalesFestivasNocturnas",
+      "HorasExtrasDominicalesFestivas",
+      "HorasExtrasDominicalesFestivasNocturnas",
       "TotalHoras",
     ].join(";");
 
     const proyectosRows = proyectos.map((p) =>
-      [p.proyecto, p.horasNormales, p.horasExtras, p.total].join(";")
+      [
+        p.proyecto,
+        p.horasNormales,
+        p.horasExtras,
+        p.horasNocturnas,
+        p.horasExtrasNocturnas,
+        p.horasDominicales,
+        p.horasDominicalesNocturnas,
+        p.horasExtrasDominicales,
+        p.horasExtrasDominicalesNocturnas,
+        p.total,
+      ].join(";")
     );
 
-    const bloqueProyectos = [
-      "TOTALES POR PROYECTO",
-      headersProyectos,
-      ...proyectosRows,
-      "",
-    ].join("\n");
+    const bloqueProyectos = ["TOTALES POR PROYECTO", headersProyectos, ...proyectosRows, ""].join("\n");
 
     // ============================
     // 4) RESUMEN GLOBAL
@@ -176,31 +280,43 @@ export async function exportReporteGeneralExcel(registros) {
 
     const bloqueGlobal = [
       "RESUMEN GLOBAL",
-      "HorasNormales;HorasExtras;TotalHoras",
-      `${global.normales};${global.extras};${global.total}`,
+      [
+        "HorasNormales",
+        "HorasExtrasDiurnas",
+        "HorasNocturnas",
+        "HorasExtrasNocturnas",
+        "HorasDominicalesFestivas",
+        "HorasDominicalesFestivasNocturnas",
+        "HorasExtrasDominicalesFestivas",
+        "HorasExtrasDominicalesFestivasNocturnas",
+        "TotalHoras",
+      ].join(";"),
+      [
+        global.horasNormales,
+        global.horasExtras,
+        global.horasNocturnas,
+        global.horasExtrasNocturnas,
+        global.horasDominicales,
+        global.horasDominicalesNocturnas,
+        global.horasExtrasDominicales,
+        global.horasExtrasDominicalesNocturnas,
+        global.total,
+      ].join(";"),
       "",
     ].join("\n");
 
     // ============================
-    // 5) COMBINAR TODO EL CSV
+    // 5) COMBINAR CSV
     // ============================
-    const csvFinal = [
-      bloqueDetalle,
-      bloquePersonas,
-      bloqueProyectos,
-      bloqueGlobal,
-    ].join("\n");
+    const csvFinal = [bloqueDetalle, bloquePersonas, bloqueProyectos, bloqueGlobal].join("\n");
 
     // ============================
-    // 6) GUARDAR Y COMPARTIR
+    // 6) GUARDAR / COMPARTIR
     // ============================
     const filename = `reporte_general_${generateTimestamp()}.csv`;
     const uri = FileSystem.cacheDirectory + filename;
 
-    await FileSystem.writeAsStringAsync(uri, csvFinal, {
-      encoding: "utf8",
-    });
-
+    await FileSystem.writeAsStringAsync(uri, csvFinal, { encoding: "utf8" });
     await Sharing.shareAsync(uri);
 
     return { ok: true, savedTo: uri };

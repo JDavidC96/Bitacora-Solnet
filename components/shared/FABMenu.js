@@ -111,7 +111,7 @@ export default function FABMenu({
                   }}
                 >
                   <MaterialIcons name="folder-open" size={22} color="#FFF" style={styles.icon} />
-                  <Text style={styles.optionText}>Proyectos activos</Text>
+                  <Text style={styles.optionText}>Proyectos completos</Text>
                 </TouchableOpacity>
               )}
 

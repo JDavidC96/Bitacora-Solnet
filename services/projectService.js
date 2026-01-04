@@ -12,63 +12,52 @@ import {
   where
 } from 'firebase/firestore';
 import { db } from '../firebase/firebaseConfig';
-import { DEFINICION_TAREAS } from '../helper';
+import { DEFINICION_TAREAS, HOLIDAYS_CO, buildSchedule } from '../helper';
 
 export const projectService = {
   // ========== CRUD BÁSICO ==========
-  
-  /**
- * Crear nuevo proyecto
- */
-create: async (projectData) => {
-  const { name, location, date, potenciaAC } = projectData;
+  create: async (projectData) => {
+    const { name, location, date, potenciaAC } = projectData;
 
-  if (!name?.trim() || !location?.trim()) {
-    throw new Error('Nombre y ubicación son requeridos');
-  }
-
-  try {
-    // potenciaAC es opcional
-    const potenciaNum = Number(potenciaAC);
-
-    const projectPayload = {
-      title: name.trim(),
-      ubicacion: location.trim(),
-      startDate: date.toISOString(),
-      createdAt: new Date().toISOString(),
-      createdBy: 'system',
-      completed: false,
-      completedAt: null,
-      status: 'active',
-    };
-
-    // Guardar potencia si viene definida (permitimos 0 también)
-    if (Number.isFinite(potenciaNum) && potenciaNum >= 0) {
-      projectPayload.potenciaAC = potenciaNum;
+    if (!name?.trim() || !location?.trim()) {
+      throw new Error('Nombre y ubicación son requeridos');
     }
 
-    const projectRef = await addDoc(collection(db, 'proyectos'), projectPayload);
+    try {
+      const potenciaNum = Number(potenciaAC);
 
-    return { id: projectRef.id, success: true };
-  } catch (error) {
-    console.error('Error creando proyecto:', error);
-    throw new Error('No se pudo crear el proyecto');
-  }
-},
+      const projectPayload = {
+        title: name.trim(),
+        ubicacion: location.trim(),
+        startDate: date.toISOString(),
+        createdAt: new Date().toISOString(),
+        createdBy: 'system',
+        completed: false,
+        completedAt: null,
+        status: 'active',
+      };
 
+      if (Number.isFinite(potenciaNum) && potenciaNum >= 0) {
+        projectPayload.potenciaAC = potenciaNum;
+      }
 
-  /**
-   * Obtener proyecto por ID
-   */
+      const projectRef = await addDoc(collection(db, 'proyectos'), projectPayload);
+      return { id: projectRef.id, success: true };
+    } catch (error) {
+      console.error('Error creando proyecto:', error);
+      throw new Error('No se pudo crear el proyecto');
+    }
+  },
+
   getById: async (projectId) => {
     try {
       const ref = doc(db, 'proyectos', projectId);
       const snap = await getDoc(ref);
-      
+
       if (!snap.exists()) {
         throw new Error('Proyecto no encontrado');
       }
-      
+
       return { id: snap.id, ...snap.data() };
     } catch (error) {
       console.error('Error obteniendo proyecto:', error);
@@ -76,24 +65,20 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Actualizar proyecto
-   */
   update: async (projectId, updates) => {
     try {
       const ref = doc(db, 'proyectos', projectId);
-      
-      // Verificar que el proyecto existe
+
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         throw new Error('Proyecto no encontrado');
       }
-      
+
       await updateDoc(ref, {
         ...updates,
         updatedAt: new Date().toISOString()
       });
-      
+
       return { success: true };
     } catch (error) {
       console.error('Error actualizando proyecto:', error);
@@ -101,20 +86,36 @@ create: async (projectData) => {
     }
   },
 
-  // ========== GESTIÓN DE COMPLETADO ==========
+  markMaintenanceActivated: async (projectId, triggerTitle = '') => {
+    try {
+      const ref = doc(db, 'proyectos', projectId);
 
-  /**
-   * Marcar proyecto como completado
-   */
+      // Evitar re-escritura si ya está activo
+      const snap = await getDoc(ref);
+      if (snap.exists() && snap.data()?.maintenanceActivated === true) {
+        return { success: true, already: true };
+      }
+
+      await updateDoc(ref, {
+        maintenanceActivated: true,
+        maintenanceActivatedAt: new Date().toISOString(),
+        maintenanceActivatedBy: triggerTitle || null,
+        lastUpdated: new Date().toISOString(),
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error marcando maintenanceActivated:', error);
+      throw error;
+    }
+  },
+  
+  // ========== GESTIÓN DE COMPLETADO ==========
   markAsCompleted: async (projectId, projectTitle = '') => {
     try {
       const ref = doc(db, 'proyectos', projectId);
-      
-      // Verificar que el proyecto existe
       const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        throw new Error('Proyecto no encontrado');
-      }
+      if (!snap.exists()) throw new Error('Proyecto no encontrado');
 
       await updateDoc(ref, {
         completed: true,
@@ -122,7 +123,7 @@ create: async (projectData) => {
         status: 'completed',
         lastUpdated: new Date().toISOString()
       });
-      
+
       console.log(`✅ Proyecto "${projectTitle}" (${projectId}) marcado como completado`);
       return { success: true, message: 'Proyecto marcado como completado' };
     } catch (error) {
@@ -131,18 +132,11 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Reactivar proyecto (mover de vuelta a activos)
-   */
   markAsActive: async (projectId) => {
     try {
       const ref = doc(db, 'proyectos', projectId);
-      
-      // Verificar que el proyecto existe
       const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        throw new Error('Proyecto no encontrado');
-      }
+      if (!snap.exists()) throw new Error('Proyecto no encontrado');
 
       await updateDoc(ref, {
         completed: false,
@@ -150,7 +144,7 @@ create: async (projectData) => {
         status: 'active',
         lastUpdated: new Date().toISOString()
       });
-      
+
       console.log(`🔄 Proyecto ${projectId} reactivado`);
       return { success: true, message: 'Proyecto reactivado' };
     } catch (error) {
@@ -159,14 +153,11 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Verificar si un proyecto está completado (todas las tareas cumplidas)
-   */
   checkCompletionStatus: async (projectId) => {
     try {
       const tasksRef = collection(db, 'proyectos', projectId, 'etapas');
       const tasksSnap = await getDocs(tasksRef);
-      
+
       if (tasksSnap.empty) {
         return { isCompleted: false, totalTasks: 0, completedTasks: 0 };
       }
@@ -188,21 +179,18 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Marcar automáticamente como completado si todas las tareas están cumplidas
-   */
   autoCompleteIfReady: async (projectId, projectTitle = '') => {
     try {
       const completionStatus = await projectService.checkCompletionStatus(projectId);
-      
+
       if (completionStatus.isCompleted) {
         return await projectService.markAsCompleted(projectId, projectTitle);
       }
-      
-      return { 
-        success: false, 
+
+      return {
+        success: false,
         message: 'El proyecto no está listo para completar',
-        ...completionStatus 
+        ...completionStatus
       };
     } catch (error) {
       console.error('❌ Error en auto-completado:', error);
@@ -210,9 +198,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Obtener solo proyectos activos
-   */
   getActiveProjects: async () => {
     try {
       const q = query(
@@ -220,7 +205,7 @@ create: async (projectData) => {
         where('completed', '!=', true),
         orderBy('createdAt', 'desc')
       );
-      
+
       const snap = await getDocs(q);
       const projects = snap.docs.map(doc => ({
         id: doc.id,
@@ -235,9 +220,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Obtener solo proyectos completados
-   */
   getCompletedProjects: async () => {
     try {
       const q = query(
@@ -245,7 +227,7 @@ create: async (projectData) => {
         where('completed', '==', true),
         orderBy('completedAt', 'desc')
       );
-      
+
       const snap = await getDocs(q);
       const projects = snap.docs.map(doc => ({
         id: doc.id,
@@ -262,33 +244,28 @@ create: async (projectData) => {
 
   delete: async (projectId, projectTitle) => {
     try {
-      // Array para almacenar todas las operaciones
       const operations = [];
-
-      // 1. Eliminar subcolecciones
       const subcollections = ['etapas', 'notas', 'inventario'];
-      
+
       for (const subcollection of subcollections) {
         try {
           const subcollectionRef = collection(db, 'proyectos', projectId, subcollection);
           const subcollectionSnap = await getDocs(subcollectionRef);
-          
-          const deleteOps = subcollectionSnap.docs.map(docSnapshot => 
+
+          const deleteOps = subcollectionSnap.docs.map(docSnapshot =>
             deleteDoc(doc(db, 'proyectos', projectId, subcollection, docSnapshot.id))
           );
-          
+
           operations.push(...deleteOps);
-          
         } catch (subError) {
           console.warn(`⚠️ Error en subcolección ${subcollection}:`, subError);
         }
       }
 
-      // 2. Liberar personal asignado (versión simplificada)
       try {
         const personalSnap = await getDocs(collection(db, "personal"));
         const updatePersonalOps = [];
-        
+
         personalSnap.docs.forEach(docSnapshot => {
           const data = docSnapshot.data();
           if (data && data.proyectoAsignado === projectTitle) {
@@ -307,11 +284,10 @@ create: async (projectData) => {
         console.warn('⚠️ Error liberando personal:', personalError);
       }
 
-      // 3. Cerrar historial (versión simplificada)
       try {
         const historialSnap = await getDocs(collection(db, "historial_personal"));
         const updateHistorialOps = [];
-        
+
         historialSnap.docs.forEach(docSnapshot => {
           const data = docSnapshot.data();
           if (data && data.destino === projectTitle && !data.fechaFin) {
@@ -329,73 +305,58 @@ create: async (projectData) => {
         console.warn('⚠️ Error cerrando historial:', historialError);
       }
 
-      // Ejecutar todas las operaciones
       if (operations.length > 0) {
         console.log(`🔄 Ejecutando ${operations.length} operaciones...`);
         await Promise.all(operations);
       }
 
-      // 4. Eliminar proyecto principal
       await deleteDoc(doc(db, 'proyectos', projectId));
-      
       return { success: true, message: 'Proyecto eliminado correctamente' };
-      
     } catch (error) {
       console.error('❌ Error completo eliminando proyecto:', error);
-      
-      // Mensaje de error más detallado
+
       let errorMessage = 'No se pudo eliminar el proyecto';
-      if (error.code) {
-        errorMessage += ` (Código: ${error.code})`;
-      }
+      if (error.code) errorMessage += ` (Código: ${error.code})`;
       if (error.message && error.message.includes('indexOf')) {
         errorMessage = 'Error interno al procesar la eliminación. Intente nuevamente.';
       } else if (error.message) {
         errorMessage += `: ${error.message}`;
       }
-      
+
       throw new Error(errorMessage);
     }
   },
 
   // ========== GESTIÓN DE ETAPAS ==========
-
-  /**
-   * Crear etapas iniciales del proyecto
-   */
   createInitialStages: async (projectId, startDate, extraDurations = {}) => {
-  try {
-    const schedule = buildSchedule(startDate, extraDurations, HOLIDAYS_CO);
+    try {
+      const schedule = buildSchedule(startDate, extraDurations, HOLIDAYS_CO);
 
-    const stagesCreation = DEFINICION_TAREAS.map(async (def) => {
-      const scheduled = schedule.get(def.id);
+      const stagesCreation = DEFINICION_TAREAS.map(async (def) => {
+        const scheduled = schedule.get(def.id);
 
-      return addDoc(collection(db, 'proyectos', projectId, 'etapas'), {
-        titulo: def.titulo,
-        fase: def.fase,
-        idTarea: def.id,
-        diasDuracion: def.dias,
-        fechaInicio: scheduled.fechaInicio,
-        fechaFin: scheduled.fechaFin,
-        cumplida: false,
-        prorrogas: 0,
-        notas: [],
-        createdAt: new Date().toISOString()
+        return addDoc(collection(db, 'proyectos', projectId, 'etapas'), {
+          titulo: def.titulo,
+          fase: def.fase,
+          idTarea: def.id,
+          diasDuracion: def.dias,
+          fechaInicio: scheduled.fechaInicio,
+          fechaFin: scheduled.fechaFin,
+          cumplida: false,
+          prorrogas: 0,
+          notas: [],
+          createdAt: new Date().toISOString()
+        });
       });
-    });
 
-    await Promise.all(stagesCreation);
-    return { success: true };
-  } catch (error) {
-    console.error('Error creando etapas iniciales:', error);
-    throw new Error('No se pudieron crear las etapas del proyecto');
-  }
-},
+      await Promise.all(stagesCreation);
+      return { success: true };
+    } catch (error) {
+      console.error('Error creando etapas iniciales:', error);
+      throw new Error('No se pudieron crear las etapas del proyecto');
+    }
+  },
 
-
-  /**
-   * Obtener todas las etapas de un proyecto
-   */
   getStages: async (projectId) => {
     try {
       const stagesRef = collection(db, 'proyectos', projectId, 'etapas');
@@ -407,9 +368,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Actualizar estado de una etapa
-   */
   updateStage: async (projectId, stageId, updates) => {
     try {
       const ref = doc(db, 'proyectos', projectId, 'etapas', stageId);
@@ -425,17 +383,11 @@ create: async (projectData) => {
   },
 
   // ========== GESTIÓN DE NOTAS ==========
-
-  /**
-   * Agregar nota a un proyecto
-   */
   addNote: async (projectId, noteData) => {
     try {
       const { text, author, images = [] } = noteData;
-      
-      if (!text?.trim()) {
-        throw new Error('El texto de la nota es requerido');
-      }
+
+      if (!text?.trim()) throw new Error('El texto de la nota es requerido');
 
       const now = new Date();
       const noteRef = await addDoc(collection(db, 'proyectos', projectId, 'notas'), {
@@ -456,9 +408,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Obtener todas las notas de un proyecto
-   */
   getNotes: async (projectId) => {
     try {
       const notesRef = collection(db, 'proyectos', projectId, 'notas');
@@ -470,9 +419,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Actualizar nota
-   */
   updateNote: async (projectId, noteId, newText) => {
     try {
       const ref = doc(db, 'proyectos', projectId, 'notas', noteId);
@@ -488,14 +434,10 @@ create: async (projectData) => {
   },
 
   // ========== GESTIÓN DE INVENTARIO ==========
-
-  /**
-   * Agregar item al inventario del proyecto
-   */
   addInventoryItem: async (projectId, itemData) => {
     try {
       const { nombre, cantidad, tipo_medida, notas = '' } = itemData;
-      
+
       if (!nombre?.trim() || cantidad == null) {
         throw new Error('Nombre y cantidad son requeridos');
       }
@@ -516,9 +458,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Obtener inventario del proyecto
-   */
   getInventory: async (projectId) => {
     try {
       const inventoryRef = collection(db, 'proyectos', projectId, 'inventario');
@@ -530,9 +469,6 @@ create: async (projectData) => {
     }
   },
 
-  /**
-   * Actualizar item del inventario
-   */
   updateInventoryItem: async (projectId, itemId, updates) => {
     try {
       const ref = doc(db, 'proyectos', projectId, 'inventario', itemId);
@@ -549,105 +485,91 @@ create: async (projectData) => {
   },
 
   // ========== GESTIÓN DE PRÓRROGAS ==========
-
-  /**
-   * Aplicar prórroga a una tarea y recalcular fechas
-   */
   applyProrroga: async (projectId, taskId, extraDays, projectStartISO) => {
-  try {
-    const stages = await projectService.getStages(projectId);
+    try {
+      const stages = await projectService.getStages(projectId);
 
-    const byId = {};
-    const extraDurations = {};
+      const byId = {};
+      const extraDurations = {};
 
-    stages.forEach(stage => {
-      byId[stage.idTarea] = stage;
-      extraDurations[stage.idTarea] = stage.prorrogas || 0;
-    });
+      stages.forEach(stage => {
+        byId[stage.idTarea] = stage;
+        extraDurations[stage.idTarea] = stage.prorrogas || 0;
+      });
 
-    extraDurations[taskId] =
-      (extraDurations[taskId] || 0) + parseInt(extraDays);
+      extraDurations[taskId] = (extraDurations[taskId] || 0) + parseInt(extraDays);
 
-    const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO);
+      const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO);
 
-    const updatePromises = DEFINICION_TAREAS.map(async (def) => {
-      const newDates = newSchedule.get(def.id);
-      const stageId = byId[def.id]?.id;
+      const updatePromises = DEFINICION_TAREAS.map(async (def) => {
+        const newDates = newSchedule.get(def.id);
+        const stageId = byId[def.id]?.id;
 
-      if (stageId && newDates) {
-        const updates = {
-          fechaInicio: newDates.fechaInicio,
-          fechaFin: newDates.fechaFin,
-          prorrogas: extraDurations[def.id],
-        };
+        if (stageId && newDates) {
+          const updates = {
+            fechaInicio: newDates.fechaInicio,
+            fechaFin: newDates.fechaFin,
+            prorrogas: extraDurations[def.id],
+          };
 
-        if (def.id === taskId) {
-          updates.notas = [
-            ...(byId[def.id].notas || []),
-            `Prórroga: +${extraDays} días hábiles`,
-          ];
+          if (def.id === taskId) {
+            updates.notas = [
+              ...(byId[def.id].notas || []),
+              `Prórroga: +${extraDays} días hábiles`,
+            ];
+          }
+
+          return projectService.updateStage(projectId, stageId, updates);
         }
+      });
 
-        return projectService.updateStage(projectId, stageId, updates);
-      }
-    });
-
-    await Promise.all(updatePromises);
-    return { success: true };
-  } catch (error) {
-    console.error('Error aplicando prórroga:', error);
-    throw new Error('No se pudo aplicar la prórroga');
-  }
-},
-
+      await Promise.all(updatePromises);
+      return { success: true };
+    } catch (error) {
+      console.error('Error aplicando prórroga:', error);
+      throw new Error('No se pudo aplicar la prórroga');
+    }
+  },
 
   // ========== UTILIDADES ==========
-
-  /**
-   * Cambiar fecha de inicio del proyecto y recalcular todas las etapas
-   */
   changeStartDate: async (projectId, newStartDate, projectStartISO) => {
-  try {
-    const stages = await projectService.getStages(projectId);
+    try {
+      const stages = await projectService.getStages(projectId);
 
-    const extraDurations = {};
-    const byId = {};
+      const extraDurations = {};
+      const byId = {};
 
-    stages.forEach(stage => {
-      byId[stage.idTarea] = stage;
-      extraDurations[stage.idTarea] = stage.prorrogas || 0;
-    });
+      stages.forEach(stage => {
+        byId[stage.idTarea] = stage;
+        extraDurations[stage.idTarea] = stage.prorrogas || 0;
+      });
 
-    const newSchedule = buildSchedule(newStartDate, extraDurations, HOLIDAYS_CO);
+      const newSchedule = buildSchedule(newStartDate, extraDurations, HOLIDAYS_CO);
 
-    await projectService.update(projectId, {
-      startDate: new Date(newStartDate).toISOString(),
-    });
+      await projectService.update(projectId, {
+        startDate: new Date(newStartDate).toISOString(),
+      });
 
-    const updatePromises = DEFINICION_TAREAS.map(async (def) => {
-      const newDates = newSchedule.get(def.id);
-      const stageId = byId[def.id]?.id;
+      const updatePromises = DEFINICION_TAREAS.map(async (def) => {
+        const newDates = newSchedule.get(def.id);
+        const stageId = byId[def.id]?.id;
 
-      if (stageId && newDates) {
-        return projectService.updateStage(projectId, stageId, {
-          fechaInicio: newDates.fechaInicio,
-          fechaFin: newDates.fechaFin,
-        });
-      }
-    });
+        if (stageId && newDates) {
+          return projectService.updateStage(projectId, stageId, {
+            fechaInicio: newDates.fechaInicio,
+            fechaFin: newDates.fechaFin,
+          });
+        }
+      });
 
-    await Promise.all(updatePromises);
-    return { success: true };
-  } catch (error) {
-    console.error('Error cambiando fecha de inicio:', error);
-    throw new Error('No se pudo cambiar la fecha de inicio');
-  }
-},
+      await Promise.all(updatePromises);
+      return { success: true };
+    } catch (error) {
+      console.error('Error cambiando fecha de inicio:', error);
+      throw new Error('No se pudo cambiar la fecha de inicio');
+    }
+  },
 
-
-  /**
-   * Obtener estadísticas del proyecto
-   */
   getProjectStats: async (projectId) => {
     try {
       const [stages, notes, inventory] = await Promise.all([
@@ -660,9 +582,8 @@ create: async (projectData) => {
       const completedStages = stages.filter(s => s.cumplida).length;
       const progress = totalStages > 0 ? (completedStages / totalStages) * 100 : 0;
 
-      // Verificar etapas retrasadas
       const hoyISO = new Date().toISOString().split("T")[0];
-      const delayedStages = stages.filter(s => 
+      const delayedStages = stages.filter(s =>
         !s.cumplida && new Date(hoyISO) > new Date(s.fechaFin)
       );
 

@@ -1,12 +1,12 @@
 // components/realExpenses/AddMaterialModal.js
 import { useState } from "react";
 import {
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function AddMaterialModal({
@@ -23,6 +23,15 @@ export default function AddMaterialModal({
 
   if (!visible) return null;
 
+  const resetForm = () => {
+  setNombre("");
+  setCantidad("");
+  setCostoUnitario("");
+  setCodigo("");
+  setNotas("");
+};
+
+
   const handleSave = () => {
     if (!nombre.trim()) return;
     onConfirm({
@@ -32,6 +41,8 @@ export default function AddMaterialModal({
       codigo,
       notas,
     });
+
+    resetForm();
   };
 
   return (
@@ -82,15 +93,24 @@ export default function AddMaterialModal({
             onChangeText={setNotas}
             multiline
           />
-
+           
           <View style={styles.actions}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.cancelText}>Cancelar</Text>
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => {
+              resetForm();   
+              onClose();
+            }}
+            >
+            <Text style={styles.cancelText}>Cancelar</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.saveBtn, loading && { opacity: 0.6 }]}
-              onPress={handleSave}
+              onPress={() => {
+                handleSave();
+                resetForm();
+              }}
               disabled={loading}
             >
               <Text style={styles.saveText}>

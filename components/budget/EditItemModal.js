@@ -35,6 +35,21 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
 
   const [utilidadGlobal, setUtilidadGlobalState] = useState(0);
 
+  const resetForm = () => {
+  setNombre("");
+  setUnidades("");
+  setCostoUnitario("");
+  setUnidad("un");
+  setCategoria("");
+  setNotas("");
+  setAplicaIva(true);
+  setCostoTotal(0);
+  setPrecioIndividual(0);
+  setValorTotal(0);
+  setUtilidad(0);
+};
+
+
   // Cargar utilidad global
   useEffect(() => {
     if (!visible) return;
@@ -47,6 +62,12 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
 
     loadUtilidadGlobal();
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      resetForm();
+      }
+    }, [visible]);
 
   // Cargar datos del ítem
   useEffect(() => {
@@ -118,6 +139,7 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
     };
 
     onSave(data);
+    resetForm();
   };
 
   if (!visible) return null;

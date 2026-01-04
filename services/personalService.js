@@ -17,7 +17,14 @@ import { db } from "../firebase/firebaseConfig";
 import { calculateWorkHours } from "../utils/calculateWorkHours";
 import { horasLaboralesService } from "./horasLaboralesService";
 
-async function abrirJornadaHistorial({ personId, nombre, destino, tipoAsignacion, proyectoId, nowISO }) {
+async function abrirJornadaHistorial({
+  personId,
+  nombre,
+  destino,
+  tipoAsignacion,
+  proyectoId,
+  nowISO,
+}) {
   await addDoc(collection(db, "historial_personal"), {
     personalId: personId,
     nombre: nombre || "",
@@ -68,64 +75,64 @@ export const personalService = {
   },
 
   async selfAssignToProject(personId, project) {
-  if (!project?.id) throw new Error("Proyecto inválido");
+    if (!project?.id) throw new Error("Proyecto inválido");
 
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-  // 1) Leer la persona para tener el nombre (snap)
-  const ref = doc(db, "personal", personId);
-  const snap = await getDoc(ref);
+    // 1) Leer la persona para tener el nombre (snap)
+    const ref = doc(db, "personal", personId);
+    const snap = await getDoc(ref);
 
-  if (!snap.exists()) {
-    throw new Error("No se encontró el registro de personal");
-  }
+    if (!snap.exists()) {
+      throw new Error("No se encontró el registro de personal");
+    }
 
-  const data = snap.data();
+    const data = snap.data();
 
-  // 2) Marcar como ocupado y asignado al proyecto (cumple rules)
-  await updateDoc(ref, {
-    proyectoAsignado: project.title || "",
-    proyectoId: project.id,
-    estado: "ocupado",
-    tipoAsignacion: "proyecto",
-    asignadoEn: now,
-    updatedAt: now,
-  });
+    // 2) Marcar como ocupado y asignado al proyecto (cumple rules)
+    await updateDoc(ref, {
+      proyectoAsignado: project.title || "",
+      proyectoId: project.id,
+      estado: "ocupado",
+      tipoAsignacion: "proyecto",
+      asignadoEn: now,
+      updatedAt: now,
+    });
 
-  // 3) Abrir jornada en historial_personal (para que liberar() la encuentre)
-  await addDoc(collection(db, "historial_personal"), {
-    personalId: personId,
-    nombre: data?.nombre || "",
-    destino: project.title || "",
-    tipoAsignacion: "proyecto",
-    proyectoId: project.id,
+    // 3) Abrir jornada en historial_personal (para que liberar() la encuentre)
+    await addDoc(collection(db, "historial_personal"), {
+      personalId: personId,
+      nombre: data?.nombre || "",
+      destino: project.title || "",
+      tipoAsignacion: "proyecto",
+      proyectoId: project.id,
 
-    fechaInicio: now,
-    fechaFin: null,
-    estado: "en_curso",
+      fechaInicio: now,
+      fechaFin: null,
+      estado: "en_curso",
 
-    createdAt: now,
-  });
+      createdAt: now,
+    });
 
-  return { ok: true };
-},
+    return { ok: true };
+  },
 
-async selfUnassign(personId) {
-  const now = new Date().toISOString();
+  async selfUnassign(personId) {
+    const now = new Date().toISOString();
 
-  await updateDoc(doc(db, "personal", personId), {
-    proyectoAsignado: "",
-    proyectoId: "",
+    await updateDoc(doc(db, "personal", personId), {
+      proyectoAsignado: "",
+      proyectoId: "",
 
-    estado: "libre",
-    tipoAsignacion: "",
-    asignadoEn: "",
+      estado: "libre",
+      tipoAsignacion: "",
+      asignadoEn: "",
 
-    updatedAt: now,
-  });
+      updatedAt: now,
+    });
 
-  return { ok: true };
-},
+    return { ok: true };
+  },
 
   // project = { id, title }
   async assignToProject(personId, project) {
@@ -135,7 +142,8 @@ async selfUnassign(personId) {
     const snap = await getDoc(ref);
 
     if (!snap.exists()) throw new Error("Persona no encontrada");
-    if (snap.data().estado === "ocupado") throw new Error("La persona ya está asignada");
+    if (snap.data().estado === "ocupado")
+      throw new Error("La persona ya está asignada");
 
     const now = new Date().toISOString();
 
@@ -169,7 +177,8 @@ async selfUnassign(personId) {
     const snap = await getDoc(ref);
 
     if (!snap.exists()) throw new Error("Persona no encontrada");
-    if (snap.data().estado === "ocupado") throw new Error("La persona ya está asignada");
+    if (snap.data().estado === "ocupado")
+      throw new Error("La persona ya está asignada");
 
     const now = new Date().toISOString();
     const destinoKey = destino.toLowerCase().replace(/\s+/g, "-");
@@ -218,24 +227,45 @@ async selfUnassign(personId) {
     const fechaFin = new Date();
     const nowISO = fechaFin.toISOString();
 
-    const { normalHours, extraHours } = calculateWorkHours(
-      fechaInicio.toISOString(),
-      fechaFin.toISOString()
-    );
+    // ✅ Con dominicales/festivos + nocturnas
+    const {
+      normalHours = 0,
+      extraHours = 0,
+      nocturnalHours = 0,
+      nocturnalExtraHours = 0,
+      dominicalHours = 0,
+      dominicalNocturnalHours = 0,
+      dominicalExtraHours = 0,
+      dominicalExtraNocturnalHours = 0,
+    } = calculateWorkHours(fechaInicio.toISOString(), fechaFin.toISOString());
 
     const horasNormales = normalHours;
     const horasExtras = extraHours;
-    const totalHoras = horasNormales + horasExtras;
+    const horasNocturnas = nocturnalHours;
+    const horasExtrasNocturnas = nocturnalExtraHours;
+
+    const horasDominicales = dominicalHours;
+    const horasDominicalesNocturnas = dominicalNocturnalHours;
+    const horasExtrasDominicales = dominicalExtraHours;
+    const horasExtrasDominicalesNocturnas = dominicalExtraNocturnalHours;
+
+    // totalHoras conserva compatibilidad (incluye todo)
+    const totalHoras =
+      horasNormales +
+      horasExtras +
+      horasNocturnas +
+      horasExtrasNocturnas +
+      horasDominicales +
+      horasDominicalesNocturnas +
+      horasExtrasDominicales +
+      horasExtrasDominicalesNocturnas;
 
     // ✅ Rol/cargo consistente
     const rol = data.rol || data.cargo || "Tecnico";
 
     // ✅ destino que queda registrado al cerrar jornada:
     // si el usuario seleccionó destinoFinal, se usa ese; si no, fallback al proyectoAsignado.
-    const destinoRegistro =
-  destinoFinal ??
-  data.proyectoAsignado ??
-  "Bodega";
+    const destinoRegistro = destinoFinal ?? data.proyectoAsignado ?? "Bodega";
 
     // REGISTRO DE HORAS
     await horasLaboralesService.registrarJornada({
@@ -246,9 +276,20 @@ async selfUnassign(personId) {
       fechaInicio: fechaInicio.toISOString(),
       fechaFin: fechaFin.toISOString(),
 
+      // Campos existentes
       horasNormales,
       horasExtras,
       totalHoras,
+
+      // ✅ NUEVOS campos para reportes futuros (reformas)
+      horasNocturnas,
+      horasExtrasNocturnas,
+
+      // ✅ DOMINICALES/FESTIVOS
+      horasDominicales,
+      horasDominicalesNocturnas,
+      horasExtrasDominicales,
+      horasExtrasDominicalesNocturnas,
 
       destino: destinoRegistro,
       tipoAsignacion: data.tipoAsignacion,
@@ -267,26 +308,37 @@ async selfUnassign(personId) {
     );
 
     const snapHist = await getDocs(q);
-    if (snapHist.empty) throw new Error("No se encontró jornada activa para cerrar");
+    if (snapHist.empty)
+      throw new Error("No se encontró jornada activa para cerrar");
 
     await updateDoc(snapHist.docs[0].ref, {
       fechaFin: nowISO,
-      destino: destinoRegistro, 
+      destino: destinoRegistro,
       estado: "finalizado",
     });
 
     // LIBERAR PERSONA
     await updateDoc(ref, {
-  estado: "libre",
-  proyectoAsignado: "",
-  proyectoId: "",        
-  tipoAsignacion: "",
-  asignadoEn: "",        
-  updatedAt: nowISO,     
-});
+      estado: "libre",
+      proyectoAsignado: "",
+      proyectoId: "",
+      tipoAsignacion: "",
+      asignadoEn: "",
+      updatedAt: nowISO,
+    });
 
-
-    return { ok: true, horasNormales, horasExtras, totalHoras };
+    return {
+      ok: true,
+      horasNormales,
+      horasExtras,
+      horasNocturnas,
+      horasExtrasNocturnas,
+      horasDominicales,
+      horasDominicalesNocturnas,
+      horasExtrasDominicales,
+      horasExtrasDominicalesNocturnas,
+      totalHoras,
+    };
   },
 
   async delete(personId) {
