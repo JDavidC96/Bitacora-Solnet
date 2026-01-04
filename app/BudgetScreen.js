@@ -11,9 +11,13 @@ import {
   View,
 } from "react-native";
 
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+
 import EditItemModal from "../components/budget/EditItemModal";
 import LoadingOverlay from "../components/shared/LoadingOverlay";
 import budgetService from "../services/budgetService";
+import { parseBudgetFromExcelBase64 } from "../utils/excelBudgetImporter";
 
 const FASE_COLORS = {
   fase1: "#1D4ED8",
@@ -45,6 +49,8 @@ export default function BudgetScreen() {
 
   const [savingUtilidad, setSavingUtilidad] = useState(false);
   const [savingAIU, setSavingAIU] = useState(false);
+
+  const [importing, setImporting] = useState(false);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editItem, setEditItem] = useState(null);
@@ -92,6 +98,74 @@ export default function BudgetScreen() {
   useEffect(() => {
     if (projectId) loadBudget();
   }, [projectId]);
+
+  // ------------------------------------------------------------
+  // Importar desde Excel
+  // ------------------------------------------------------------
+
+  const handleImportExcel = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: [
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-excel",
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (res.canceled) return;
+      const file = res.assets?.[0];
+      if (!file?.uri) {
+        Alert.alert("Error", "No se pudo leer el archivo seleccionado.");
+        return;
+      }
+
+      Alert.alert(
+        "Importar presupuesto",
+        "Esto reemplazará los ítems actuales del presupuesto por los del Excel. ¿Continuar?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Sí, importar",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                setImporting(true);
+
+                const base64 = await FileSystem.readAsStringAsync(file.uri, {
+                  encoding: FileSystem.EncodingType.Base64,
+                });
+
+                const parsed = parseBudgetFromExcelBase64(base64);
+
+                await budgetService.replaceBudgetFromImport(projectId, {
+                  utilidadGlobal: parsed.utilidadGlobal,
+                  aiu: parsed.aiu,
+                  items: parsed.items,
+                });
+
+                await loadBudget();
+                Alert.alert("Listo", "Presupuesto importado correctamente.");
+              } catch (e) {
+                console.error("Error importando presupuesto:", e);
+                Alert.alert(
+                  "Error",
+                  e?.message ||
+                    "No se pudo importar. Verifica que la hoja 'Presupuesto' tenga el formato correcto."
+                );
+              } finally {
+                setImporting(false);
+              }
+            },
+          },
+        ]
+      );
+    } catch (e) {
+      console.error("Error seleccionando Excel:", e);
+      Alert.alert("Error", "No se pudo abrir el selector de archivos.");
+    }
+  };
 
   // ------------------------------------------------------------
   // Guardar utilidad global
@@ -178,26 +252,12 @@ export default function BudgetScreen() {
       const existe = !!itemsExistentes.find((i) => i.id === itemGuardado.id);
 
       if (existe) {
-        await budgetService.updateItem(
-          projectId,
-          budget.id,
-          faseKey,
-          itemGuardado
-        );
+        await budgetService.updateItem(projectId, budget.id, faseKey, itemGuardado);
       } else {
         if (faseKey === "fase4") {
-          await budgetService.addItemFase4(
-            projectId,
-            budget.id,
-            itemGuardado
-          );
+          await budgetService.addItemFase4(projectId, budget.id, itemGuardado);
         } else {
-          await budgetService.addItem(
-            projectId,
-            budget.id,
-            faseKey,
-            itemGuardado
-          );
+          await budgetService.addItem(projectId, budget.id, faseKey, itemGuardado);
         }
       }
 
@@ -210,31 +270,22 @@ export default function BudgetScreen() {
   };
 
   const handleDeleteItem = (item, faseKey) => {
-    Alert.alert(
-      "Eliminar ítem",
-      `¿Seguro que deseas eliminar "${item.nombre}"?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await budgetService.deleteItem(
-                projectId,
-                budget.id,
-                faseKey,
-                item.id
-              );
-              await loadBudget();
-            } catch (err) {
-              console.error("Error eliminando ítem:", err);
-              Alert.alert("Error", "No se pudo eliminar el ítem.");
-            }
-          },
+    Alert.alert("Eliminar ítem", `¿Seguro que deseas eliminar "${item.nombre}"?`, [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await budgetService.deleteItem(projectId, budget.id, faseKey, item.id);
+            await loadBudget();
+          } catch (err) {
+            console.error("Error eliminando ítem:", err);
+            Alert.alert("Error", "No se pudo eliminar el ítem.");
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   // ------------------------------------------------------------
@@ -245,10 +296,6 @@ export default function BudgetScreen() {
     return <LoadingOverlay message="Cargando presupuesto..." />;
   }
 
-  // ------------------------------------------------------------
-  // RENDER
-  // ------------------------------------------------------------
-
   const { fases, totalesGenerales, calculosGlobales, totalGeneral } = budget;
 
   return (
@@ -258,12 +305,29 @@ export default function BudgetScreen() {
         <Text style={styles.screenTitle}>Presupuesto del proyecto</Text>
         <Text style={styles.projectId}>ID proyecto: {projectId}</Text>
 
+        {/* Importar Excel */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Importación</Text>
+          <Text style={styles.sectionSubtitle}>
+            Importa desde un Excel (hoja "Presupuesto") y reemplaza los ítems actuales.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.importButton, importing && { opacity: 0.6 }]}
+            onPress={handleImportExcel}
+            disabled={importing}
+          >
+            <Text style={styles.importButtonText}>
+              {importing ? "Importando..." : "Importar desde Excel"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* UTILIDAD GLOBAL */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Utilidad global por ítem</Text>
           <Text style={styles.sectionSubtitle}>
-            Se aplica como margen a TODOS los ítems (precio individual = costo /
-            (1 - utilidad)).
+            Se aplica como margen a TODOS los ítems (precio individual = costo / (1 - utilidad)).
           </Text>
 
           <View style={styles.rowCenter}>
@@ -280,10 +344,7 @@ export default function BudgetScreen() {
             </View>
 
             <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                savingUtilidad && { opacity: 0.5 },
-              ]}
+              style={[styles.primaryButton, savingUtilidad && { opacity: 0.5 }]}
               onPress={handleSaveUtilidadGlobal}
               disabled={savingUtilidad}
             >
@@ -327,9 +388,7 @@ export default function BudgetScreen() {
           </View>
 
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>
-              Utilidad total (solo por ítems)
-            </Text>
+            <Text style={styles.summaryLabel}>Utilidad total (solo por ítems)</Text>
             <Text style={styles.summaryValue}>
               {formatMoney(totalesGenerales.utilidadTotalProyecto)}
             </Text>
@@ -368,7 +427,7 @@ export default function BudgetScreen() {
             </Text>
           </View>
 
-          {/* AIU DENTRO DEL RESUMEN GENERAL */}
+          {/* AIU */}
           <View style={{ marginTop: 18 }}>
             <Text style={styles.sectionTitle}>Ajustar AIU</Text>
             <Text style={styles.sectionSubtitle}>
@@ -382,9 +441,7 @@ export default function BudgetScreen() {
                   style={styles.input}
                   keyboardType="numeric"
                   value={aiu.administracion}
-                  onChangeText={(t) =>
-                    setAiu((prev) => ({ ...prev, administracion: t }))
-                  }
+                  onChangeText={(t) => setAiu((prev) => ({ ...prev, administracion: t }))}
                 />
               </View>
 
@@ -394,9 +451,7 @@ export default function BudgetScreen() {
                   style={styles.input}
                   keyboardType="numeric"
                   value={aiu.imprevistos}
-                  onChangeText={(t) =>
-                    setAiu((prev) => ({ ...prev, imprevistos: t }))
-                  }
+                  onChangeText={(t) => setAiu((prev) => ({ ...prev, imprevistos: t }))}
                 />
               </View>
 
@@ -406,9 +461,7 @@ export default function BudgetScreen() {
                   style={styles.input}
                   keyboardType="numeric"
                   value={aiu.utilidad}
-                  onChangeText={(t) =>
-                    setAiu((prev) => ({ ...prev, utilidad: t }))
-                  }
+                  onChangeText={(t) => setAiu((prev) => ({ ...prev, utilidad: t }))}
                 />
               </View>
             </View>
@@ -424,55 +477,37 @@ export default function BudgetScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* CONTINUACIÓN DEL RESUMEN */}
+          {/* CONTINUACIÓN */}
           <View style={[styles.summaryRow, { marginTop: 16 }]}>
             <Text style={styles.summaryLabel}>Base AIU</Text>
-            <Text style={styles.summaryValue}>
-              {formatMoney(calculosGlobales.baseAIU)}
-            </Text>
+            <Text style={styles.summaryValue}>{formatMoney(calculosGlobales.baseAIU)}</Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Administración</Text>
-            <Text style={styles.summaryValue}>
-              {formatMoney(calculosGlobales.administracion)}
-            </Text>
+            <Text style={styles.summaryValue}>{formatMoney(calculosGlobales.administracion)}</Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Imprevistos</Text>
-            <Text style={styles.summaryValue}>
-              {formatMoney(calculosGlobales.imprevistos)}
-            </Text>
+            <Text style={styles.summaryValue}>{formatMoney(calculosGlobales.imprevistos)}</Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Utilidad AIU</Text>
-            <Text style={styles.summaryValue}>
-              {formatMoney(calculosGlobales.utilidadAIU)}
-            </Text>
+            <Text style={styles.summaryValue}>{formatMoney(calculosGlobales.utilidadAIU)}</Text>
           </View>
 
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>IVA utilidad AIU</Text>
-            <Text style={styles.summaryValue}>
-              {formatMoney(calculosGlobales.ivaUtilidadAIU)}
-            </Text>
+            <Text style={styles.summaryValue}>{formatMoney(calculosGlobales.ivaUtilidadAIU)}</Text>
           </View>
 
-          {/* TOTAL GENERAL */}
           <View style={[styles.summaryRow, { marginTop: 10 }]}>
-            <Text
-              style={[styles.summaryLabel, { fontWeight: "700", color: "#FBBF24" }]}
-            >
+            <Text style={[styles.summaryLabel, { fontWeight: "700", color: "#FBBF24" }]}>
               TOTAL GENERAL DESPUÉS DE IVA
             </Text>
-            <Text
-              style={[
-                styles.summaryValue,
-                { fontWeight: "700", color: "#FBBF24" },
-              ]}
-            >
+            <Text style={[styles.summaryValue, { fontWeight: "700", color: "#FBBF24" }]}>
               {formatMoney(totalGeneral)}
             </Text>
           </View>
@@ -495,27 +530,22 @@ export default function BudgetScreen() {
 // COMPONENTE PARA CADA FASE
 // ------------------------------------------------------------
 
-function BudgetPhaseCard({
-  title,
-  faseKey,
-  faseData,
-  color,
-  onAddItem,
-  onEditItem,
-  onDeleteItem,
-}) {
+function BudgetPhaseCard({ title, faseKey, faseData, color, onAddItem, onEditItem, onDeleteItem }) {
   const items = faseData?.items || [];
 
   return (
     <View style={styles.phaseCard}>
-      <View style={styles.phaseHeaderRow}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={[styles.phaseBadge, { backgroundColor: color }]} />
-          <Text style={styles.phaseTitle}>{title}</Text>
-        </View>
+      <View style={styles.phaseHeaderCol}>
+  <View style={styles.phaseTitleRow}>
+    <View style={[styles.phaseBadge, { backgroundColor: color }]} />
+    <Text style={styles.phaseTitle} numberOfLines={2}>
+      {title}
+    </Text>
+  </View>
 
-        <Text style={styles.phaseTotal}>{formatMoney(faseData.total)}</Text>
-      </View>
+  <Text style={styles.phaseTotalBelow}>{formatMoney(faseData.total)}</Text>
+</View>
+
 
       <View style={styles.phaseItemsList}>
         {items.map((item) => (
@@ -530,10 +560,7 @@ function BudgetPhaseCard({
               </View>
 
               <View style={styles.itemActions}>
-                <TouchableOpacity
-                  style={styles.iconButton}
-                  onPress={() => onEditItem(item, faseKey)}
-                >
+                <TouchableOpacity style={styles.iconButton} onPress={() => onEditItem(item, faseKey)}>
                   <Text style={styles.iconButtonText}>Editar</Text>
                 </TouchableOpacity>
 
@@ -541,9 +568,7 @@ function BudgetPhaseCard({
                   style={[styles.iconButton, { backgroundColor: "#7F1D1D" }]}
                   onPress={() => onDeleteItem(item, faseKey)}
                 >
-                  <Text style={[styles.iconButtonText, { color: "#FCA5A5" }]}>
-                    Borrar
-                  </Text>
+                  <Text style={[styles.iconButtonText, { color: "#FCA5A5" }]}>Borrar</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -551,50 +576,35 @@ function BudgetPhaseCard({
             <View style={styles.itemDetailGrid}>
               <View style={styles.itemRow}>
                 <Text style={styles.itemLabel}>Costo total</Text>
-                <Text style={styles.itemValue}>
-                  {formatMoney(item.costoTotal)}
-                </Text>
+                <Text style={styles.itemValue}>{formatMoney(item.costoTotal)}</Text>
               </View>
 
               <View style={styles.itemRow}>
                 <Text style={styles.itemLabel}>Precio individual</Text>
-                <Text style={styles.itemValue}>
-                  {formatMoney(item.precioIndividual)}
-                </Text>
+                <Text style={styles.itemValue}>{formatMoney(item.precioIndividual)}</Text>
               </View>
 
               <View style={styles.itemRow}>
                 <Text style={styles.itemLabel}>Valor total</Text>
-                <Text style={styles.itemValue}>
-                  {formatMoney(item.valorTotal)}
-                </Text>
+                <Text style={styles.itemValue}>{formatMoney(item.valorTotal)}</Text>
               </View>
 
               <View style={styles.itemRow}>
                 <Text style={styles.itemLabel}>Utilidad</Text>
-                <Text style={styles.itemValue}>
-                  {formatMoney(item.utilidad)}
-                </Text>
+                <Text style={styles.itemValue}>{formatMoney(item.utilidad)}</Text>
               </View>
             </View>
 
-            {item.notas ? (
-              <Text style={styles.itemNotes}>Nota: {item.notas}</Text>
-            ) : null}
+            {item.notas ? <Text style={styles.itemNotes}>Nota: {item.notas}</Text> : null}
           </View>
         ))}
 
         {items.length === 0 && (
-          <Text style={styles.emptyItemsText}>
-            Aún no hay ítems en esta fase.
-          </Text>
+          <Text style={styles.emptyItemsText}>Aún no hay ítems en esta fase.</Text>
         )}
 
         <View style={styles.newItemContainer}>
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() => onAddItem(faseKey)}
-          >
+          <TouchableOpacity style={styles.addBtn} onPress={() => onAddItem(faseKey)}>
             <Text style={styles.addBtnText}>+ Agregar ítem</Text>
           </TouchableOpacity>
         </View>
@@ -662,6 +672,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  importButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#334155",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.25)",
+  },
+  importButtonText: {
+    color: "#E5E7EB",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -704,10 +729,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  // ---------------------------------------------------
-  // FASES
-  // ---------------------------------------------------
-
   phaseCard: {
     backgroundColor: "#020617",
     borderRadius: 12,
@@ -716,11 +737,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(148,163,184,0.25)",
   },
-  phaseHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  phaseHeaderCol: {
     marginBottom: 10,
   },
+  phaseTitleRow: {
+    flexDirection: "row",
+    color: "#FBBF24",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  phaseTotalBelow: {
+    color: "#FBBF24",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
   phaseBadge: {
     width: 12,
     height: 12,
@@ -826,9 +857,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ---------------------------------------------------
-  // RESUMENES
-  // ---------------------------------------------------
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",

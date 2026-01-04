@@ -8,6 +8,7 @@ import {
   getDocs,
   setDoc,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase/firebaseConfig";
 
@@ -402,9 +403,8 @@ export const budgetService = {
         utilidadGlobal: Number(utilidadGlobal) || 0,
       });
     }
-  }
+  },
 
-  ,
   /**
    * Actualizar porcentajes de AIU.
    */
@@ -430,6 +430,54 @@ export const budgetService = {
         aiu,
       });
     }
+  },
+
+  // --------------------------------------------------
+  // IMPORTACIÓN DESDE EXCEL (REEMPLAZA TODO)
+  // --------------------------------------------------
+
+  async replaceBudgetFromImport(projectId, { utilidadGlobal, aiu, items }) {
+    const colRef = collection(db, "proyectos", projectId, "presupuesto");
+    const snap = await getDocs(colRef);
+
+    const batch = writeBatch(db);
+
+    // 1) borrar todo excepto config (lo vamos a re-escribir igual)
+    snap.forEach((d) => {
+      const isConfig = d.id === "config" || d.data()?.tipo === "config";
+      if (!isConfig) {
+        batch.delete(doc(db, "proyectos", projectId, "presupuesto", d.id));
+      }
+    });
+
+    // 2) set config
+    batch.set(doc(db, "proyectos", projectId, "presupuesto", "config"), {
+      tipo: "config",
+      utilidadGlobal: Number(utilidadGlobal) || 0,
+      aiu: {
+        administracion: Number(aiu?.administracion) || 0,
+        imprevistos: Number(aiu?.imprevistos) || 0,
+        utilidad: Number(aiu?.utilidad) || 0,
+      },
+    });
+
+    // 3) crear ítems nuevos (ids nuevos)
+    // writeBatch no soporta addDoc, pero sí setDoc con doc() sin id fijo:
+    items.forEach((it) => {
+      const ref = doc(colRef); // id auto
+      batch.set(ref, {
+        faseKey: it.faseKey,
+        nombre: it.nombre || "",
+        unidades: Number(it.unidades) || 0,
+        costoUnitario: Number(it.costoUnitario) || 0,
+        aplicaIva: it.aplicaIva ?? true,
+        unidad: it.unidad || "un",
+        categoria: it.categoria || "",
+        notas: it.notas || "",
+      });
+    });
+
+    await batch.commit();
   },
 };
 
