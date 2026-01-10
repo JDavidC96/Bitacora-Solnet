@@ -307,6 +307,17 @@ function RootDrawer() {
       />
 
       <Drawer.Screen 
+        name="NoVinculantesScreen" 
+        options={{ 
+          title: "No Vinculantes",
+          headerStyle: {
+            backgroundColor: '#eb910bff',
+          },
+          headerTintColor: '#fff',
+        }} 
+      />
+
+      <Drawer.Screen 
         name="PersonalHistoryScreen" 
         options={{ 
           title: "Historial de Personal",

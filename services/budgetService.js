@@ -31,8 +31,7 @@ import { db } from "../firebase/firebaseConfig";
  *         aplicaIva: boolean,
  *         unidad: string,
  *         categoria: string,
- *         notas: string,
- *         excludeUtilidadGlobal?: boolean // true => NO aplicar utilidad global (ej: comisiones)
+ *         notas: string
  *       }
  */
 
@@ -69,21 +68,15 @@ function calcularItemConUtilidad(item, utilidadGlobal) {
 
   const costoTotal = unidades * costoUnitario;
 
-  // Exclusión de utilidad global:
-  // - Si el ítem trae excludeUtilidadGlobal=true, se respeta.
-  // - Compatibilidad: si el nombre es "Comisiones", también se excluye (aunque no venga el flag).
-  const nombreNorm = String(item.nombre || "").trim().toLowerCase();
-  const isComisiones = nombreNorm === "comisiones";
-
-  const excludeUtilidadGlobal = !!item.excludeUtilidadGlobal || isComisiones;
-
   let precioIndividual = costoUnitario;
 
-  const aplicaUtilidad =
-    !excludeUtilidadGlobal && utilidadGlobal > 0 && utilidadGlobal < 100;
-
-  if (aplicaUtilidad) {
-    const margen = 1 - utilidadGlobal / 100; // ej: 25% -> 0.75
+  // SOLO aplicar utilidad global si el ítem lo permite
+  if (
+    item.aplicaUtilidadGlobal !== false &&
+    utilidadGlobal > 0 &&
+    utilidadGlobal < 100
+  ) {
+    const margen = 1 - utilidadGlobal / 100; // ej: 25% → 0.75
     if (margen !== 0) {
       precioIndividual = costoUnitario / margen;
     }
@@ -100,7 +93,6 @@ function calcularItemConUtilidad(item, utilidadGlobal) {
     precioIndividual,
     valorTotal,
     utilidad,
-    excludeUtilidadGlobal,
   };
 }
 
@@ -151,16 +143,16 @@ async function crearPresupuestoInicial(projectId) {
 
   for (const nombre of fase4Base) {
     await addDoc(colRef, {
-      faseKey: "fase4",
-      nombre,
-      excludeUtilidadGlobal: nombre === "Comisiones", // 👈 NO aplicar utilidad global a comisiones
-      unidades: 1,
-      costoUnitario: 0,
-      aplicaIva: false,
-      unidad: "un",
-      categoria: "tramites",
-      notas: "",
-    });
+  faseKey: "fase4",
+  nombre,
+  unidades: 1,
+  costoUnitario: 0,
+  aplicaIva: false,
+  aplicaUtilidadGlobal: nombre === "Comisiones" ? false : true,
+  unidad: "un",
+  categoria: "tramites",
+  notas: "",
+});
   }
 }
 
@@ -227,11 +219,12 @@ export const budgetService = {
       if (!fases[faseKey]) return;
 
       const aplicaIva = raw.aplicaIva ?? true;
+const aplicaUtilidadGlobal = raw.aplicaUtilidadGlobal ?? true;
 
-      const itemCalc = calcularItemConUtilidad(
-        { ...raw, aplicaIva },
-        utilidadGlobal
-      );
+const itemCalc = calcularItemConUtilidad(
+  { ...raw, aplicaIva, aplicaUtilidadGlobal },
+  utilidadGlobal
+);
 
       // Acumular en la fase
       fases[faseKey].items.push(itemCalc);
@@ -326,13 +319,10 @@ export const budgetService = {
     const payload = {
       faseKey,
       nombre: itemData.nombre || "",
-      // Comisiones NO deben verse afectadas por utilidad global
-      excludeUtilidadGlobal:
-        itemData.excludeUtilidadGlobal ??
-        String(itemData.nombre || "").trim().toLowerCase() === "comisiones",
       unidades: Number(itemData.unidades) || 0,
       costoUnitario: Number(itemData.costoUnitario) || 0,
       aplicaIva: itemData.aplicaIva ?? true,
+      aplicaUtilidadGlobal: itemData.aplicaUtilidadGlobal ?? true,
       unidad: itemData.unidad || "un",
       categoria: itemData.categoria || "",
       notas: itemData.notas || "",
@@ -360,17 +350,20 @@ export const budgetService = {
     if (!itemData.id) {
       throw new Error("updateItem requiere itemData.id");
     }
-    const ref = doc(db, "proyectos", projectId, "presupuesto", itemData.id);
+    const ref = doc(
+      db,
+      "proyectos",
+      projectId,
+      "presupuesto",
+      itemData.id
+    );
 
     const payload = {
       nombre: itemData.nombre || "",
-      // Comisiones NO deben verse afectadas por utilidad global
-      excludeUtilidadGlobal:
-        itemData.excludeUtilidadGlobal ??
-        String(itemData.nombre || "").trim().toLowerCase() === "comisiones",
       unidades: Number(itemData.unidades) || 0,
       costoUnitario: Number(itemData.costoUnitario) || 0,
       aplicaIva: itemData.aplicaIva ?? true,
+      aplicaUtilidadGlobal: itemData.aplicaUtilidadGlobal ?? true,
       unidad: itemData.unidad || "un",
       categoria: itemData.categoria || "",
       notas: itemData.notas || "",
@@ -402,7 +395,7 @@ export const budgetService = {
   // --------------------------------------------------
 
   /**
-   * Actualizar % de utilidad global (aplica a TODOS los ítems excepto los excluidos).
+   * Actualizar % de utilidad global (aplica a TODOS los ítems).
    */
   async updateUtilidadGlobal(projectId, utilidadGlobal) {
     const colRef = collection(db, "proyectos", projectId, "presupuesto");
@@ -485,9 +478,6 @@ export const budgetService = {
       batch.set(ref, {
         faseKey: it.faseKey,
         nombre: it.nombre || "",
-        excludeUtilidadGlobal:
-          it.excludeUtilidadGlobal ??
-          String(it.nombre || "").trim().toLowerCase() === "comisiones",
         unidades: Number(it.unidades) || 0,
         costoUnitario: Number(it.costoUnitario) || 0,
         aplicaIva: it.aplicaIva ?? true,

@@ -555,6 +555,7 @@ function BudgetPhaseCard({ title, faseKey, faseData, color, onAddItem, onEditIte
                 <Text style={styles.itemName}>{item.nombre}</Text>
                 <Text style={styles.itemDetail}>
                   {item.unidades} u × {formatMoney(item.costoUnitario)}{" "}
+                  {!item.aplicaUtilidadGlobal ? "(sin utilidad)" : ""}{" "}
                   {item.aplicaIva ? "(con IVA en resumen)" : "(sin IVA)"}
                 </Text>
               </View>

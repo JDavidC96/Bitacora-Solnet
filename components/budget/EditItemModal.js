@@ -26,6 +26,7 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
   const [categoria, setCategoria] = useState("");
   const [notas, setNotas] = useState("");
   const [aplicaIva, setAplicaIva] = useState(true);
+  const [aplicaUtilidadGlobal, setAplicaUtilidadGlobal] = useState(true);
 
   // valores calculados
   const [costoTotal, setCostoTotal] = useState(0);
@@ -76,6 +77,7 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
       setUnidades(String(item.unidades || ""));
       setCostoUnitario(String(item.costoUnitario || ""));
       setAplicaIva(item.aplicaIva ?? true);
+      setAplicaUtilidadGlobal(item.aplicaUtilidadGlobal ?? true);
       setUnidad(item.unidad || "un");
       setCategoria(item.categoria || "");
       setNotas(item.notas || "");
@@ -99,26 +101,28 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
     );
   }, [unidades, costoUnitario, aplicaIva, utilidadGlobal]);
 
-  const calcularValores = (u, cu, iva, utilidadG) => {
-    const unidadesN = Number(u) || 0;
-    const costoUnit = Number(cu) || 0;
+  const calcularValores = (u, cu, iva, utilidadG, aplicaUG) => {
+  const unidadesN = Number(u) || 0;
+  const costoUnit = Number(cu) || 0;
 
-    const costoT = unidadesN * costoUnit;
+  const costoT = unidadesN * costoUnit;
 
-    let pIndividual = costoUnit;
-    if (utilidadG > 0 && utilidadG < 100) {
-      const margen = 1 - utilidadG / 100;
-      if (margen !== 0) pIndividual = costoUnit / margen;
+  let pIndividual = costoUnit;
+  if (aplicaUG && utilidadG > 0 && utilidadG < 100) {
+    const margen = 1 - utilidadG / 100;
+    if (margen !== 0) {
+      pIndividual = costoUnit / margen;
     }
+  }
 
-    const vTotal = pIndividual * unidadesN;
-    const util = vTotal - costoT;
+  const vTotal = pIndividual * unidadesN;
+  const util = vTotal - costoT;
+  setCostoTotal(costoT);
+  setPrecioIndividual(pIndividual);
+  setValorTotal(vTotal);
+  setUtilidad(util);
+};
 
-    setCostoTotal(costoT);
-    setPrecioIndividual(pIndividual);
-    setValorTotal(vTotal);
-    setUtilidad(util);
-  };
 
   const handleSave = () => {
     if (!nombre.trim()) {
@@ -133,6 +137,7 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
       unidades: Number(unidades) || 0,
       costoUnitario: Number(costoUnitario) || 0,
       aplicaIva,
+      aplicaUtilidadGlobal,
       unidad,
       categoria,
       notas,
@@ -225,6 +230,17 @@ export default function EditItemModal({ visible, item, onClose, onSave }) {
                 trackColor={{ true: "#10B981", false: "#475569" }}
                 thumbColor="#F8FAFC"
               />
+            </View>
+
+            {/* Switch UTILIDAD GLOBAL */}
+            <View style={styles.switchRow}>
+              <Text style={styles.label}>¿Aplica utilidad global?</Text>
+                <Switch
+                  value={aplicaUtilidadGlobal}
+                  onValueChange={setAplicaUtilidadGlobal}
+                  trackColor={{ true: "#10B981", false: "#475569" }}
+                  thumbColor="#F8FAFC"
+                />
             </View>
 
             {/* CÁLCULOS (solo lectura) */}
