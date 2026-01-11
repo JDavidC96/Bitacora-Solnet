@@ -164,7 +164,7 @@ export const DEFINICION_TAREAS = [
   { id: "acometida", titulo: "Acometida", fase: "Fase 4 - Instalación", dias: 2, dependsOn: [{ id: "equipo_medida", relation: "startAtEndOf" }] },
   { id: "acta_entrega", titulo: "Acta de entrega", fase: "Fase 4 - Instalación", dias: 1, dependsOn: [{ id: "acometida", relation: "startAtEndOf" }] },
 
-  // Fase 5 - Retie
+  // Fase 5 - Retie 
   { id: "cotizacion", titulo: "Cotización", fase: "Fase 5 - Retie", dias: 3, dependsOn: [{ id: "acta_entrega", relation: "startWith" }] },
   { id: "pago_cotizacion", titulo: "Pago cotización", fase: "Fase 5 - Retie", dias: 1, dependsOn: [{ id: "acta_entrega", relation: "startWith" }] },
   { id: "agendamiento", titulo: "Agendamiento", fase: "Fase 5 - Retie", dias: 3, dependsOn: [{ id: "acta_entrega", relation: "startWith" }] },
@@ -202,42 +202,58 @@ export const MANTENIMIENTOS_TAREAS = [
 ];
 
 // buildSchedule con orden topológico y fechas LOCAL
-export const buildSchedule = (startDate, extraDurations = {}, holidays = HOLIDAYS_CO) => {
+export const buildSchedule = (
+  startDate,
+  extraDurations = {},
+  holidays = HOLIDAYS_CO,
+  baseDurations = {} // NUEVO: duración base por tarea (para proyectos más cortos/largos)
+) => {
   const tareasMap = new Map();
-  DEFINICION_TAREAS.forEach(t => {
+  DEFINICION_TAREAS.forEach((t) => {
     tareasMap.set(t.id, { ...t });
   });
 
   // ---- Orden topológico (DFS simple) ----
   const orden = [];
-  const temp = new Set();   // detección de ciclos (opcional)
+  const temp = new Set(); // detección de ciclos (opcional)
   const perm = new Set();
 
   const visitar = (id) => {
     if (perm.has(id)) return;
     if (temp.has(id)) throw new Error(`Ciclo de dependencias detectado en ${id}`);
     temp.add(id);
+
     const t = tareasMap.get(id);
-    (t?.dependsOn || []).forEach(dep => visitar(dep.id));
+    (t?.dependsOn || []).forEach((dep) => visitar(dep.id));
+
     temp.delete(id);
     perm.add(id);
     orden.push(id);
   };
 
-  DEFINICION_TAREAS.forEach(t => visitar(t.id));
+  DEFINICION_TAREAS.forEach((t) => visitar(t.id));
 
   // ---- Cálculo de fechas ----
   const resultado = new Map();
-  const inicioProyecto = (typeof startDate === "string") ? fromYMD(startDate) : fromYMD(toYMD(startDate));
+  const inicioProyecto =
+    typeof startDate === "string" ? fromYMD(startDate) : fromYMD(toYMD(startDate));
 
-  orden.forEach(id => {
+  orden.forEach((id) => {
     const tarea = tareasMap.get(id);
 
     // fechaInicio candidata: inicio de proyecto
-    let fechaInicio = new Date(inicioProyecto.getFullYear(), inicioProyecto.getMonth(), inicioProyecto.getDate(), 0, 0, 0, 0);
+    let fechaInicio = new Date(
+      inicioProyecto.getFullYear(),
+      inicioProyecto.getMonth(),
+      inicioProyecto.getDate(),
+      0,
+      0,
+      0,
+      0
+    );
 
     // ajustar por dependencias
-    (tarea.dependsOn || []).forEach(dep => {
+    (tarea?.dependsOn || []).forEach((dep) => {
       const depTarea = resultado.get(dep.id);
       if (!depTarea) throw new Error(`Dependencia ${dep.id} de ${id} no encontrada`);
 
@@ -245,13 +261,11 @@ export const buildSchedule = (startDate, extraDurations = {}, holidays = HOLIDAY
         // mismo inicio que la dependencia
         const depStart = fromYMD(depTarea.fechaInicio);
         if (depStart.getTime() > fechaInicio.getTime()) fechaInicio = depStart;
-      } 
-      else if (dep.relation === "startAtEndOf") {
+      } else if (dep.relation === "startAtEndOf") {
         // mismo día que termina la dependencia
         const depFin = fromYMD(depTarea.fechaFin);
         if (depFin.getTime() > fechaInicio.getTime()) fechaInicio = depFin;
-      } 
-      else if (dep.relation === "startDayAfterEndOf") {
+      } else if (dep.relation === "startDayAfterEndOf") {
         // siguiente día hábil después de terminar
         const depFin = fromYMD(depTarea.fechaFin);
         const next = nextBusinessDay(depFin, holidays);
@@ -259,14 +273,23 @@ export const buildSchedule = (startDate, extraDurations = {}, holidays = HOLIDAY
       }
     });
 
+    // Duración base editable por proyecto (si existe), si no usa la estándar
+    const baseRaw = baseDurations?.[id];
+    const base =
+      Number.isFinite(Number(baseRaw)) ? Number(baseRaw) : Number(tarea?.dias || 0);
+
+    const extraRaw = extraDurations?.[id];
+    const extra = Number.isFinite(Number(extraRaw)) ? Number(extraRaw) : 0;
+
+    const dur = base + extra;
+
     // Para tareas normales: duración en días hábiles
-    const dur = (tarea.dias || 0) + (extraDurations[id] || 0);
     const fechaFin = addBusinessDaysInclusive(fechaInicio, Math.max(dur, 0), holidays);
 
     resultado.set(id, {
       fechaInicio: toYMD(fechaInicio),
       fechaFin: toYMD(fechaFin),
-      esMantenimiento: false
+      esMantenimiento: false,
     });
   });
 

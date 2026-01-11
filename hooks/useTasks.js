@@ -344,6 +344,13 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
         extraDurations[row.idTarea] = row.prorrogas || 0;
       });
 
+      // Crear baseDurations desde byId
+      const baseDurations = {};
+      DEFINICION_TAREAS.forEach((def) => {
+        const etapa = byId[def.id];
+        baseDurations[def.id] = etapa?.diasDuracion ?? def.dias;
+      });
+
       // ENCONTRAR LA POSICIÓN DE LA TAREA SELECCIONADA
       const targetIndex = DEFINICION_TAREAS.findIndex((task) => task.id === prorrogaTarget.idTarea);
 
@@ -365,8 +372,8 @@ export const useTasks = (projectId, projectStartISO, canMarkStateRole, canProrro
         }
       });
 
-      // RECALCULAR EL CRONOGRAMA COMPLETO
-      const sched = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO);
+      // RECALCULAR EL CRONOGRAMA COMPLETO con baseDurations
+      const sched = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO, baseDurations);
 
       // ACTUALIZAR TODAS LAS TAREAS (excluyendo mantenimientos y no aplica)
       for (const def of DEFINICION_TAREAS) {

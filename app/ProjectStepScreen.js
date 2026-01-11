@@ -2,6 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { EditScheduleModal } from '../components/project-steps/EditScheduleModal';
 
 import { ProjectHeader } from '../components/project-steps/ProjectHeader';
 import { ProrrogaModal } from '../components/project-steps/ProrrogaModal';
@@ -21,6 +22,10 @@ export default function ProjectStepScreen() {
   const [projectTitle, setProjectTitle] = useState('');
   const [focusedTask, setFocusedTask] = useState(null);
   const [projectCompleted, setProjectCompleted] = useState(false);
+  
+  // 3.2 Estados para editar cronograma
+  const [showEditSchedule, setShowEditSchedule] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   useEffect(() => {
     console.log('🔍 Parámetros recibidos en ProjectStepScreen:', params);
@@ -66,6 +71,26 @@ export default function ProjectStepScreen() {
   } = useTasks(projectId, projectStartISO, canMarkStateRole, canProrrogaRole);
   
   useStepsNotifications(tasks, projectTitle, projectId);
+
+  // 3.2 Permiso para editar cronograma
+  const canEditSchedule = canChangeStartDateRole;
+
+  // 3.3 Handler para guardar cronograma
+  const handleSaveSchedule = async (baseDurationsPayload) => {
+    if (!projectId || !projectStartISO) return;
+
+    try {
+      setSavingSchedule(true);
+      await projectService.applyScheduleOverrides(projectId, baseDurationsPayload, projectStartISO);
+      setShowEditSchedule(false);
+      Alert.alert('✅ Listo', 'Cronograma actualizado correctamente.');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Error', 'No fue posible actualizar el cronograma.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
 
   // Verificar si el proyecto está completado (excluyendo mantenimientos y tareas no aplica)
   useEffect(() => {
@@ -159,6 +184,19 @@ export default function ProjectStepScreen() {
         handleChangeStartDate={handleChangeStartDate}
       />
 
+      {/* 3.4 Botón para editar cronograma */}
+      {canEditSchedule && (
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: '#ECC94B', marginHorizontal: 20, marginTop: 10 }]}
+          onPress={() => setShowEditSchedule(true)}
+          disabled={savingSchedule}
+        >
+          <Text style={styles.buttonText}>
+            {savingSchedule ? 'Aplicando...' : '🗓️ Editar cronograma'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* Banner de proyecto completado */}
       {projectCompleted && (
         <View style={completedBannerStyles.banner}>
@@ -191,6 +229,15 @@ export default function ProjectStepScreen() {
         onClose={() => setProrrogaModal(false)}
         onDiasChange={setProrrogaDias}
         onApply={applyProrroga}
+      />
+
+      {/* 3.5 Modal para editar cronograma */}
+      <EditScheduleModal
+        visible={showEditSchedule}
+        tasks={tasks}
+        projectStartISO={projectStartISO}
+        onClose={() => setShowEditSchedule(false)}
+        onSave={handleSaveSchedule}
       />
     </LinearGradient>
   );

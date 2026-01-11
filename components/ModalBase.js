@@ -7,7 +7,7 @@ export default function ModalBase({
   children, 
   onClose, 
   footer,
-  hideCancelButton = false // ✅ Nueva prop
+  hideCancelButton = false 
 }) {
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -18,14 +18,19 @@ export default function ModalBase({
           <View style={{ marginBottom: 16 }}>{children}</View>
 
           <View style={styles.footer}>
-            {footer}
-            {/* ✅ Solo mostrar cancelar si no está oculto */}
-            {!hideCancelButton && (
-              <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onClose}>
-                <Text style={styles.btnText}>Cancelar</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+  {typeof footer === "string" ? (
+    <Text style={styles.footerText}>{footer}</Text>
+  ) : (
+    footer
+  )}
+
+  {!hideCancelButton && (
+    <TouchableOpacity style={[styles.btn, styles.cancel]} onPress={onClose}>
+      <Text style={styles.btnText}>Cancelar</Text>
+    </TouchableOpacity>
+  )}
+</View>
+
         </View>
       </View>
     </Modal>

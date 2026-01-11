@@ -44,7 +44,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { role, user } = useUser();
-  
+
   // Estados
   const [selectedProject, setSelectedProject] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -62,65 +62,113 @@ export default function HomeScreen() {
     actions: false,
     search: false
   });
-  
+
   // Hooks de utilidad
   useBackHandler();
   useNotifications();
 
   // Permisos
-  // Permisos (según punto 13)
-const canManage = ["Administrador", "Ingeniero"].includes(role); // gestión real
-const canSelfAssign = ["Tecnico", "Supervisor"].includes(role);  // auto-asignación / auto-liberación
+  const canManage = ["Administrador", "Ingeniero"].includes(role); // gestión real
+  const canSelfAssign = ["Tecnico", "Supervisor"].includes(role); // auto-asignación / auto-liberación
 
-// Persona del usuario (si ya cargó personal)
-const myPersona = useMemo(() => {
-  if (!myPersonalId) return null;
-  return (personal || []).find(p => p.id === myPersonalId) || null;
-}, [personal, myPersonalId]);
-
+  // Persona del usuario (si ya cargó personal)
+  const myPersona = useMemo(() => {
+    if (!myPersonalId) return null;
+    return (personal || []).find(p => p.id === myPersonalId) || null;
+  }, [personal, myPersonalId]);
 
   useMemo(() => {
-  let cancelled = false;
+    let cancelled = false;
 
-  (async () => {
-    try {
-      if (!user?.uid) return;
-      const ref = doc(db, "usuarios_permitidos", user.uid);
-      const snap = await getDoc(ref);
-      const pid = snap.exists() ? snap.data()?.personalId : null;
+    (async () => {
+      try {
+        if (!user?.uid) return;
+        const ref = doc(db, "usuarios_permitidos", user.uid);
+        const snap = await getDoc(ref);
+        const pid = snap.exists() ? snap.data()?.personalId : null;
 
-      if (!cancelled) setMyPersonalId(pid || null);
-    } catch (e) {
-      console.error("Error leyendo personalId del usuario:", e);
-      if (!cancelled) setMyPersonalId(null);
-    } finally {
-      if (!cancelled) setMyPersonalLoading(false);
-    }
-  })();
+        if (!cancelled) setMyPersonalId(pid || null);
+      } catch (e) {
+        console.error("Error leyendo personalId del usuario:", e);
+        if (!cancelled) setMyPersonalId(null);
+      } finally {
+        if (!cancelled) setMyPersonalLoading(false);
+      }
+    })();
 
-  return () => { cancelled = true; };
-}, [user?.uid]);
+    return () => { cancelled = true; };
+  }, [user?.uid]);
 
-  // Total kW AC instalados (suma de todos los proyectos)
+  // =========================
+  // TOTALES (activos + completados)
+  // =========================
+  const allProjects = useMemo(() => {
+    return [
+      ...(Array.isArray(projects) ? projects : []),
+      ...(Array.isArray(completedProjects) ? completedProjects : []),
+    ];
+  }, [projects, completedProjects]);
+
+  // Total kW AC instalados
   const totalKwAc = useMemo(() => {
-  const allProjects = [
-    ...(Array.isArray(projects) ? projects : []),
-    ...(Array.isArray(completedProjects) ? completedProjects : []),
-  ];
-
-  return allProjects.reduce((acc, p) => {
-    const kw =
-      Number(
+    return allProjects.reduce((acc, p) => {
+      const kw = Number(
         p?.potenciaAcKw ??
         p?.potenciaACKw ??
         p?.potenciaAC ??
         p?.potenciaAc ??
         0
       );
+      return acc + (isNaN(kw) ? 0 : kw);
+    }, 0);
+  }, [allProjects]);
 
-    return acc + (isNaN(kw) ? 0 : kw);
-  }, 0);
-}, [projects, completedProjects]);
+  // Total kW DC instalados
+  const totalKwDc = useMemo(() => {
+    return allProjects.reduce((acc, p) => {
+      const kw = Number(
+        p?.potenciaDcKw ??
+        p?.potenciaDCKw ??
+        p?.potenciaDC ??
+        p?.potenciaDc ??
+        p?.potenciaDcTotalKw ??
+        0
+      );
+      return acc + (isNaN(kw) ? 0 : kw);
+    }, 0);
+  }, [allProjects]);
+
+  // Total paneles instalados
+  const totalPaneles = useMemo(() => {
+    return allProjects.reduce((acc, p) => {
+      const n = Number(
+        p?.panelesInstalados ??
+        p?.paneles ??
+        p?.cantidadPaneles ??
+        0
+      );
+      return acc + (isNaN(n) ? 0 : n);
+    }, 0);
+  }, [allProjects]);
+
+  // CO2 reducido aproximado (tCO2/año) usando kW DC
+  // Ajusta estos 2 valores a tu criterio / país / operador:
+  const co2TonsPerYear = useMemo(() => {
+    const CAPACITY_FACTOR = 0.18;        // 18% típico residencial/comercial (ajustable)
+    const GRID_CO2_KG_PER_KWH = 0.4;     // 0.4 kg CO2 por kWh (ajustable)
+    const HOURS_YEAR = 8760;
+
+    const kwhYear = totalKwDc * HOURS_YEAR * CAPACITY_FACTOR; // kW * h = kWh
+    const kgCo2Year = kwhYear * GRID_CO2_KG_PER_KWH;
+    const tons = kgCo2Year / 1000;
+
+    if (!Number.isFinite(tons) || tons <= 0) return 0;
+    return tons;
+  }, [totalKwDc]);
+
+  const formatInt = (n) => Number(n || 0).toLocaleString("es-CO");
+  const formatTons = (n) =>
+    Number(n || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 });
 
   // ========== HANDLERS ==========
 
@@ -128,13 +176,13 @@ const myPersona = useMemo(() => {
     setLoading(true);
     try {
       const result = await projectService.create(projectData);
-      
+
       // Crear etapas automáticamente
       await projectService.createInitialStages(
-        result.id, 
+        result.id,
         projectData.date.toISOString().split('T')[0]
       );
-      
+
       closeAllModals();
       Alert.alert('Éxito', 'Proyecto creado correctamente');
     } catch (error) {
@@ -147,7 +195,7 @@ const myPersona = useMemo(() => {
 
   const handleEditProject = async (updates) => {
     if (!selectedProject) return;
-    
+
     setLoading(true);
     try {
       await projectService.update(selectedProject.id, updates);
@@ -164,7 +212,7 @@ const myPersona = useMemo(() => {
 
   const handleDeleteProject = async () => {
     if (!selectedProject) return;
-    
+
     Alert.alert(
       'Confirmar eliminación',
       `¿Estás seguro de que quieres eliminar el proyecto "${selectedProject.title}"?`,
@@ -176,13 +224,12 @@ const myPersona = useMemo(() => {
           onPress: async () => {
             setLoading(true);
             try {
-              // Verificar ID del proyecto
               const projectIdToDelete = selectedProject.idDoc || selectedProject.id;
-              
+
               if (!projectIdToDelete) {
                 throw new Error('No se pudo obtener el ID del proyecto');
               }
-              
+
               await projectService.delete(projectIdToDelete, selectedProject.title);
               closeAllModals();
               setSelectedProject(null);
@@ -200,137 +247,129 @@ const myPersona = useMemo(() => {
   };
 
   const handleSelfAssign = async (project) => {
-  if (!canSelfAssign) return;
-  if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
-  if (!myPersona?.id) return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
+    if (!canSelfAssign) return;
+    if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
+    if (!myPersona?.id) return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
 
-  setLoading(true);
-  try {
-    await personalService.selfAssignToProject(myPersona.id, { id: project.id, title: project.title });
-    await markAssignActivity(); // asignar => ultimoLogin + lastActivity
-    Alert.alert("Éxito", "Te asignaste al proyecto.");
-  } catch (e) {
-    console.error("Error auto-asignando:", e);
-    Alert.alert("Error", e?.message || "No se pudo asignar.");
-  } finally {
-    setLoading(false);
-  }
-};
+    setLoading(true);
+    try {
+      await personalService.selfAssignToProject(myPersona.id, { id: project.id, title: project.title });
+      await markAssignActivity();
+      Alert.alert("Éxito", "Te asignaste al proyecto.");
+    } catch (e) {
+      console.error("Error auto-asignando:", e);
+      Alert.alert("Error", e?.message || "No se pudo asignar.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-const confirmSelfUnassign = (project) => {
-  Alert.alert(
-    "Liberar personal",
-    `¿Liberarte del proyecto?`,
-    [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Liberar",
-        style: "destructive",
-        onPress: () => handleSelfUnassign(project),
-      },
-    ]
-  );
-};
+  const confirmSelfUnassign = (project) => {
+    Alert.alert(
+      "Liberar personal",
+      `¿Liberarte del proyecto?`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Liberar",
+          style: "destructive",
+          onPress: () => handleSelfUnassign(project),
+        },
+      ]
+    );
+  };
 
-
-const handleSelfUnassign = async (project) => {
-  if (!canSelfAssign) return;
-  if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
-  if (!myPersona?.id) {
-    return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
-  }
-
-  setLoading(true);
-  try {
-    await personalService.liberar(myPersona.id);
-
-    // desasignar => SOLO lastActivity
-    await markUnassignActivity();
-
-    Alert.alert("Éxito", "Te liberaste del proyecto.");
-  } catch (e) {
-    console.error("Error auto-liberando:", e);
-    Alert.alert("Error", e?.message || "No se pudo liberar.");
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-
-  const handleProjectLongPress = (project) => {
-  setSelectedProject(project);
-
-  // Técnico/Supervisor: self actions
-  if (canSelfAssign) {
+  const handleSelfUnassign = async (project) => {
+    if (!canSelfAssign) return;
+    if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
     if (!myPersona?.id) {
       return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
     }
 
-    const iAmAssignedHere = myPersona.proyectoId === project.id || myPersona.proyectoAsignado === project.title;
+    setLoading(true);
+    try {
+      await personalService.liberar(myPersona.id);
+      await markUnassignActivity();
+      Alert.alert("Éxito", "Te liberaste del proyecto.");
+    } catch (e) {
+      console.error("Error auto-liberando:", e);
+      Alert.alert("Error", e?.message || "No se pudo liberar.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    Alert.alert(
-      project.title || "Proyecto",
-      "Acción",
-      [
-        !iAmAssignedHere
-          ? { text: "Asignarme a este proyecto", onPress: () => handleSelfAssign(project) }
-          : { text: "Liberarme", style: "destructive", onPress: () => confirmSelfUnassign(project) },
-            { text: "Cancelar", style: "cancel" },
-      ]
-    );
+  const handleProjectLongPress = (project) => {
+    setSelectedProject(project);
 
-    return;
-  }
+    // Técnico/Supervisor: self actions
+    if (canSelfAssign) {
+      if (!myPersona?.id) {
+        return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
+      }
 
-  // Admin/Ingeniero: modal acciones
-  openModal("actions");
-};
+      const iAmAssignedHere = myPersona.proyectoId === project.id || myPersona.proyectoAsignado === project.title;
 
+      Alert.alert(
+        project.title || "Proyecto",
+        "Acción",
+        [
+          !iAmAssignedHere
+            ? { text: "Asignarme a este proyecto", onPress: () => handleSelfAssign(project) }
+            : { text: "Liberarme", style: "destructive", onPress: () => confirmSelfUnassign(project) },
+          { text: "Cancelar", style: "cancel" },
+        ]
+      );
+
+      return;
+    }
+
+    // Admin/Ingeniero: modal acciones
+    openModal("actions");
+  };
 
   const handleProjectPress = (project) => {
     router.push({
       pathname: '/NoteScreen',
-      params: { 
-        id: project.id,  
+      params: {
+        id: project.id,
         title: project.title || "Proyecto"
       },
     });
   };
 
   const markAssignActivity = async () => {
-  if (!user?.uid) return;
+    if (!user?.uid) return;
 
-  await updateDoc(doc(db, "usuarios_permitidos", user.uid), {
-    ultimoLogin: serverTimestamp(),
-    lastActivity: serverTimestamp(),
-  });
-};
+    await updateDoc(doc(db, "usuarios_permitidos", user.uid), {
+      ultimoLogin: serverTimestamp(),
+      lastActivity: serverTimestamp(),
+    });
+  };
 
-const markUnassignActivity = async () => {
-  if (!user?.uid) return;
+  const markUnassignActivity = async () => {
+    if (!user?.uid) return;
 
-  await updateDoc(doc(db, "usuarios_permitidos", user.uid), {
-    lastActivity: serverTimestamp(),
-  });
-};
-
+    await updateDoc(doc(db, "usuarios_permitidos", user.uid), {
+      lastActivity: serverTimestamp(),
+    });
+  };
 
   const handleAssignPerson = async (personId) => {
     if (!selectedProject || !personId) return;
-    
+
     setLoading(true);
     try {
-      // Buscar la persona seleccionada
       const persona = personal.find(p => p.id === personId);
       if (!persona) {
         throw new Error('Persona no encontrada');
       }
 
       await personalService.assignToProject(persona.id, {
-        id:selectedProject.id,
-        title:selectedProject.title});
-      
+        id: selectedProject.id,
+        title: selectedProject.title
+      });
+
       closeAllModals();
       setSelectedProject(null);
       Alert.alert('Éxito', `${persona.nombre} asignado al proyecto`);
@@ -367,7 +406,7 @@ const markUnassignActivity = async () => {
   };
 
   // ORDENAR POR FECHA DE CREACIÓN (más recientes primero)
-  const sortedProjects = projects
+  const sortedProjects = (Array.isArray(projects) ? projects : [])
     .sort((a, b) => {
       const dateA = a.createdAt || a.startDate || 0;
       const dateB = b.createdAt || b.startDate || 0;
@@ -381,7 +420,7 @@ const markUnassignActivity = async () => {
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Error cargando proyectos</Text>
         <Text style={styles.errorSubtext}>{projectsError.message}</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.retryButton}
           onPress={() => window.location.reload()}
         >
@@ -390,7 +429,7 @@ const markUnassignActivity = async () => {
       </View>
     );
   }
-  
+
   return (
     <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
@@ -410,9 +449,21 @@ const markUnassignActivity = async () => {
                 Gestión y seguimiento de instalaciones
               </Text>
 
-              {/* NUEVO: total de kW AC sumados */}
+              {/* Totales */}
               <Text style={styles.kwTotal}>
                 ⚡ {formatPowerKw(totalKwAc, { suffix: "AC" })} instalados
+              </Text>
+
+              <Text style={styles.kwTotal}>
+                🔋 {formatPowerKw(totalKwDc, { suffix: "DC" })} instalados
+              </Text>
+
+              <Text style={styles.kwTotal}>
+                🧩 {formatInt(totalPaneles)} panel{totalPaneles !== 1 ? "es" : ""} instalados
+              </Text>
+
+              <Text style={styles.kwTotal}>
+                🌿 ~{formatTons(co2TonsPerYear)} tCO₂/año (aprox.)
               </Text>
             </View>
 
@@ -436,36 +487,34 @@ const markUnassignActivity = async () => {
           {/* Lista de proyectos */}
           {!projectsLoading && (
             <ProjectList
-  projects={sortedProjects}
-  personal={personal}
+              projects={sortedProjects}
+              personal={personal}
 
-  // roles/permisos
-  viewerRole={role}
-  viewerPersonalId={myPersonalId}
-  canManage={canManage}
+              // roles/permisos
+              viewerRole={role}
+              viewerPersonalId={myPersonalId}
+              canManage={canManage}
 
-  // navegación
-  onProjectPress={handleProjectPress}
-  onProjectLongPress={handleProjectLongPress}
+              // navegación
+              onProjectPress={handleProjectPress}
+              onProjectLongPress={handleProjectLongPress}
 
-  // admin libera a otros
-  onLiberarPersona={handleLiberarPersona}
-/>
-
+              // admin libera a otros
+              onLiberarPersona={handleLiberarPersona}
+            />
           )}
 
           {/* Botones flotantes */}
           {!projectsLoading && (
-  <FABMenu
-    showSearch={true}
-    showCompleted={true}
-    showAdd={canManage}        
-    onAdd={() => openModal('add')}
-    onSearch={() => openModal('search')}
-    onCompleted={() => router.push('/CompletedProjectsScreen')}
-  />
-)}
-
+            <FABMenu
+              showSearch={true}
+              showCompleted={true}
+              showAdd={canManage}
+              onAdd={() => openModal('add')}
+              onSearch={() => openModal('search')}
+              onCompleted={() => router.push('/CompletedProjectsScreen')}
+            />
+          )}
 
           {/* ========== MODALES ========== */}
 
@@ -535,7 +584,7 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     paddingHorizontal: 16,
     paddingBottom: 16,
-    backgroundColor: 'rgba(255, 248, 242, 0.82)', // capa clara encima del gradiente
+    backgroundColor: 'rgba(255, 248, 242, 0.82)',
   },
   header: {
     flexDirection: 'row',
@@ -570,7 +619,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  
+
   bgImage: {
     position: "absolute",
     width: 260,

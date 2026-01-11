@@ -1,5 +1,6 @@
 // components/home/ProjectCard.js
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import formatPowerKw from "../../utils/formatPower";
 
 export default function ProjectCard({
   item,
@@ -32,6 +33,22 @@ export default function ProjectCard({
       item?.potenciaACKw ??
       item?.potenciaAC ??
       item?.potenciaAc ??
+      0
+  );
+
+  const potenciaDcKw = Number(
+    item?.potenciaDcKw ??
+      item?.potenciaDCKw ??
+      item?.potenciaDC ??
+      item?.potenciaDc ??
+      item?.potenciaDcTotalKw ??
+      0
+  );
+
+  const paneles = Number(
+    item?.panelesInstalados ??
+      item?.paneles ??
+      item?.cantidadPaneles ??
       0
   );
 
@@ -69,7 +86,19 @@ export default function ProjectCard({
 
           {potenciaAcKw > 0 && (
             <Text style={styles.projectKw}>
-              ⚡ {potenciaAcKw.toLocaleString("es-CO", { maximumFractionDigits: 2 })} kW AC
+              ⚡ {formatPowerKw(potenciaAcKw, { suffix: "AC" })}
+            </Text>
+          )}
+
+          {potenciaDcKw > 0 && (
+            <Text style={styles.projectKw2}>
+              🔋 {formatPowerKw(potenciaDcKw, { suffix: "DC" })}
+            </Text>
+          )}
+
+          {paneles > 0 && (
+            <Text style={styles.projectPanels}>
+              🧩 {paneles.toLocaleString("es-CO")} panel{paneles !== 1 ? "es" : ""}
             </Text>
           )}
         </View>
@@ -185,6 +214,9 @@ const styles = StyleSheet.create({
   projectTitle: { color: "#F9FAFB", fontSize: 18, fontWeight: "700", marginBottom: 4 },
   projectDate: { color: "#9CA3AF", fontSize: 13 },
   projectKw: { marginTop: 3, color: "#A7F3D0", fontSize: 12, fontWeight: "600" },
+  projectKw2: { marginTop: 3, color: "#93C5FD", fontSize: 12, fontWeight: "600" },
+  projectPanels: { marginTop: 3, color: "#FDE68A", fontSize: 12, fontWeight: "600" },
+
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",

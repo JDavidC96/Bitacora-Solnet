@@ -17,37 +17,50 @@ import { DEFINICION_TAREAS, HOLIDAYS_CO, buildSchedule } from '../helper';
 export const projectService = {
   // ========== CRUD BÁSICO ==========
   create: async (projectData) => {
-    const { name, location, date, potenciaAC } = projectData;
+  const { name, location, date, potenciaAC, potenciaDC, panelesInstalados } = projectData;
 
-    if (!name?.trim() || !location?.trim()) {
-      throw new Error('Nombre y ubicación son requeridos');
+  if (!name?.trim() || !location?.trim()) {
+    throw new Error('Nombre y ubicación son requeridos');
+  }
+
+  try {
+    const potenciaAcNum = Number(potenciaAC);
+    const potenciaDcNum = Number(potenciaDC);
+    const panelesNum = Number(panelesInstalados);
+
+    const projectPayload = {
+      title: name.trim(),
+      ubicacion: location.trim(),
+      startDate: date.toISOString(),
+      createdAt: new Date().toISOString(),
+      createdBy: 'system',
+      completed: false,
+      completedAt: null,
+      status: 'active',
+    };
+
+    // kW AC
+    if (Number.isFinite(potenciaAcNum) && potenciaAcNum >= 0) {
+      projectPayload.potenciaAC = potenciaAcNum;
     }
 
-    try {
-      const potenciaNum = Number(potenciaAC);
-
-      const projectPayload = {
-        title: name.trim(),
-        ubicacion: location.trim(),
-        startDate: date.toISOString(),
-        createdAt: new Date().toISOString(),
-        createdBy: 'system',
-        completed: false,
-        completedAt: null,
-        status: 'active',
-      };
-
-      if (Number.isFinite(potenciaNum) && potenciaNum >= 0) {
-        projectPayload.potenciaAC = potenciaNum;
-      }
-
-      const projectRef = await addDoc(collection(db, 'proyectos'), projectPayload);
-      return { id: projectRef.id, success: true };
-    } catch (error) {
-      console.error('Error creando proyecto:', error);
-      throw new Error('No se pudo crear el proyecto');
+    // kW DC
+    if (Number.isFinite(potenciaDcNum) && potenciaDcNum >= 0) {
+      projectPayload.potenciaDC = potenciaDcNum;
     }
-  },
+
+    // Paneles
+    if (Number.isFinite(panelesNum) && panelesNum >= 0) {
+      projectPayload.panelesInstalados = Math.floor(panelesNum);
+    }
+
+    const projectRef = await addDoc(collection(db, 'proyectos'), projectPayload);
+    return { id: projectRef.id, success: true };
+  } catch (error) {
+    console.error('Error creando proyecto:', error);
+    throw new Error('No se pudo crear el proyecto');
+  }
+},
 
   getById: async (projectId) => {
     try {
@@ -491,15 +504,17 @@ export const projectService = {
 
       const byId = {};
       const extraDurations = {};
+      const baseDurations = {};
 
       stages.forEach(stage => {
         byId[stage.idTarea] = stage;
         extraDurations[stage.idTarea] = stage.prorrogas || 0;
+        baseDurations[stage.idTarea] = stage.diasDuracion; //  editable por proyecto
       });
 
       extraDurations[taskId] = (extraDurations[taskId] || 0) + parseInt(extraDays);
 
-      const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO);
+      const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO, baseDurations);
 
       const updatePromises = DEFINICION_TAREAS.map(async (def) => {
         const newDates = newSchedule.get(def.id);
@@ -531,6 +546,55 @@ export const projectService = {
     }
   },
 
+  // ========== CRONOGRAMA: EDITAR DURACIONES ==========
+  applyScheduleOverrides: async (projectId, baseDurationsInput = {}, projectStartISO) => {
+    try {
+      const stages = await projectService.getStages(projectId);
+
+      const byId = {};
+      const extraDurations = {};
+      const baseDurations = {};
+
+      stages.forEach(stage => {
+        byId[stage.idTarea] = stage;
+        extraDurations[stage.idTarea] = stage.prorrogas || 0;
+
+        const incoming = baseDurationsInput?.[stage.idTarea];
+
+        // base = lo que venga del modal si existe, si no lo que ya tenga la etapa
+        baseDurations[stage.idTarea] =
+          Number.isFinite(Number(incoming))
+            ? Number(incoming)
+            : Number(stage.diasDuracion ?? 0);
+      });
+
+      const newSchedule = buildSchedule(projectStartISO, extraDurations, HOLIDAYS_CO, baseDurations);
+
+      const updatePromises = DEFINICION_TAREAS.map(async (def) => {
+        const stage = byId[def.id];
+        const newDates = newSchedule.get(def.id);
+        if (!stage || !newDates) return;
+
+        // ⛔️ no tocar mantenimientos / no aplica
+        if (stage.esMantenimiento) return;
+        if (stage.noAplica) return;
+
+        return projectService.updateStage(projectId, stage.id, {
+          diasDuracion: baseDurations[def.id],
+          fechaInicio: newDates.fechaInicio,
+          fechaFin: newDates.fechaFin,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      await Promise.all(updatePromises);
+      return { success: true };
+    } catch (error) {
+      console.error('Error aplicando edición de cronograma:', error);
+      throw new Error('No se pudo aplicar la edición del cronograma');
+    }
+  },
+
   // ========== UTILIDADES ==========
   changeStartDate: async (projectId, newStartDate, projectStartISO) => {
     try {
@@ -538,13 +602,15 @@ export const projectService = {
 
       const extraDurations = {};
       const byId = {};
+      const baseDurations = {};
 
       stages.forEach(stage => {
         byId[stage.idTarea] = stage;
         extraDurations[stage.idTarea] = stage.prorrogas || 0;
+        baseDurations[stage.idTarea] = stage.diasDuracion; // ✅ editable por proyecto
       });
 
-      const newSchedule = buildSchedule(newStartDate, extraDurations, HOLIDAYS_CO);
+      const newSchedule = buildSchedule(newStartDate, extraDurations, HOLIDAYS_CO, baseDurations);
 
       await projectService.update(projectId, {
         startDate: new Date(newStartDate).toISOString(),
