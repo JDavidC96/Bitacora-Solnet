@@ -3,6 +3,36 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import CustomDayComponent from './CustomDayComponent';
 
+/**
+ * Componente de vista de calendario personalizado con días marcados y soporte para estados.
+ * 
+ * Este componente renderiza un calendario interactivo con un tema oscuro personalizado,
+ * permitiendo marcar fechas específicas y manejar la interacción del usuario.
+ * 
+ * @component
+ * @example
+ * const markedDates = {
+ *   '2024-01-15': { marked: true, dotColor: 'red' },
+ *   '2024-01-20': { marked: true, dotColor: 'blue' }
+ * };
+ * 
+ * return (
+ *   <CalendarView
+ *     title="Eventos"
+ *     markedDates={markedDates}
+ *     onDayPress={(day) => console.log('Día seleccionado:', day)}
+ *     loading={false}
+ *   />
+ * );
+ * 
+ * @param {Object} props - Propiedades del componente
+ * @param {string} props.title - Título que se mostrará sobre el calendario (ej: "Calendario de Eventos")
+ * @param {Object} props.markedDates - Objeto con las fechas marcadas en formato compatible con `react-native-calendars`
+ * @param {function} props.onDayPress - Función callback que se ejecuta cuando se presiona un día del calendario
+ * @param {boolean} [props.loading=false] - Indica si el calendario está en estado de carga
+ * 
+ * @returns {React.ReactElement} Componente de calendario renderizado
+ */
 export default function CalendarView({
   title,
   markedDates = {},
@@ -40,6 +70,11 @@ export default function CalendarView({
   );
 }
 
+/**
+ * Tema personalizado para el calendario con esquema de colores oscuro.
+ * Define todos los colores, fuentes y tamaños para los elementos del calendario.
+ * @constant {Object}
+ */
 const calendarTheme = {
   calendarBackground: '#1E1E2F',
   textSectionTitleColor: '#b6c1cd',

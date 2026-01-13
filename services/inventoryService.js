@@ -12,13 +12,38 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { auth, db } from "../firebase/firebaseConfig";
-import { getFaseByCodigo } from "../utils/classifyMaterial"; // ✅ NUEVO
+import { getFaseByCodigo } from "../utils/classifyMaterial";
+
+/**
+ * Servicio integral de gestión de inventario para el sistema de proyectos solares.
+ * 
+ * Este servicio maneja todas las operaciones relacionadas con:
+ * - Inventario general de materiales
+ * - Movimientos entre inventario general y proyectos
+ * - Historial de transacciones
+ * - Gestión de gastos reales por proyecto
+ * - Sistema de fases (fase1/fase2) para clasificación de materiales
+ * 
+ * Arquitectura modular:
+ * 1. Gestión de inventario general
+ * 2. Historial de movimientos
+ * 3. Movimientos inventario → proyecto
+ * 4. Operaciones entre proyectos
+ * 5. Compatibilidad con funciones en inglés
+ * 
+ * @module inventoryService
+ */
 
 /* ======================================================
  * UTILIDADES INTERNAS
  * ====================================================== */
 
-// Utilidad interna para cantidad disponible
+/**
+ * Obtiene la cantidad disponible de un material a partir de diferentes nombres de campo
+ * @param {Object} data - Objeto de datos del material
+ * @returns {number} Cantidad disponible
+ * @private
+ */
 const getCantidad = (data) => {
   if (typeof data.cantidadActual === "number") return data.cantidadActual;
   if (typeof data.cantidad_disponible === "number")
@@ -27,7 +52,11 @@ const getCantidad = (data) => {
   return 0;
 };
 
-// Resolver nombre humano del actor
+/**
+ * Resuelve el nombre del actor (usuario) actual para registro en historial
+ * @returns {Promise<string>} Nombre del usuario o "Sistema" si no se puede determinar
+ * @private
+ */
 const getActorNombre = async () => {
   try {
     const user = auth.currentUser;
@@ -48,7 +77,13 @@ const getActorNombre = async () => {
   }
 };
 
-// ✅ Para compras: SOLO fase1/fase2
+/**
+ * Determina la fase de compra (fase1 o fase2) basándose en el código del material
+ * Solo para materiales de compras directas (no transferencias internas)
+ * @param {string} codigo - Código del material
+ * @returns {string} "fase1" o "fase2"
+ * @private
+ */
 const getFaseCompra = (codigo) => {
   const f = getFaseByCodigo(codigo || "");
   return f === "fase1" ? "fase1" : "fase2";
@@ -60,16 +95,32 @@ const getFaseCompra = (codigo) => {
 
 export const inventoryService = {
   /* ======================================================
-   * 1. INVENTARIO GENERAL
+   * 1. GESTIÓN DE INVENTARIO GENERAL
    * ====================================================== */
 
-  /** Obtener todos los items del inventario general */
+  /**
+   * Obtiene todos los items del inventario general
+   * @async
+   * @returns {Promise<Array<Object>>} Lista de materiales del inventario general
+   */
   async getAllGeneral() {
     const snap = await getDocs(collection(db, "inventario_general"));
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
-  /** Agregar ítem al inventario general */
+  /**
+   * Agrega un ítem al inventario general (sin historial)
+   * @async
+   * @param {Object} itemData - Datos del material a agregar
+   * @param {string} itemData.nombre - Nombre del material
+   * @param {string} [itemData.categoria] - Categoría del material
+   * @param {number} itemData.cantidad - Cantidad inicial
+   * @param {string} [itemData.tipo_medida="Unidad"] - Unidad de medida
+   * @param {number} itemData.precio - Precio unitario
+   * @param {string} [itemData.codigo=""] - Código único del material
+   * @param {string} [itemData.notas=""] - Notas adicionales
+   * @param {number|null} [itemData.minimo=null] - Stock mínimo para alertas
+   */
   agregarItemInventarioGeneral: async (itemData) => {
     await addDoc(collection(db, "inventario_general"), {
       nombre: itemData.nombre,
@@ -79,12 +130,17 @@ export const inventoryService = {
       precio: Number(itemData.precio ?? 0),
       codigo: itemData.codigo || "",
       notas: itemData.notas || "",
-      minimo: itemData.minimo ?? null,
+      minimo: itemData.minimo ?? null, // Campo de stock mínimo agregado
       ultimaModificacion: new Date(),
     });
   },
 
-  /** Actualizar ítem existente del inventario general */
+  /**
+   * Actualiza un ítem existente en el inventario general
+   * @async
+   * @param {string} id - ID del documento en Firestore
+   * @param {Object} itemData - Campos a actualizar (pueden ser parciales)
+   */
   actualizarItemInventarioGeneral: async (id, itemData) => {
     const ref = doc(db, "inventario_general", id);
     const snap = await getDoc(ref);
@@ -100,18 +156,25 @@ export const inventoryService = {
       precio: Number(itemData.precio ?? current.precio ?? 0),
       codigo: itemData.codigo ?? current.codigo ?? "",
       notas: itemData.notas ?? current.notas ?? "",
-      minimo:
-        itemData.minimo !== undefined ? itemData.minimo : current.minimo ?? null,
+      minimo: itemData.minimo !== undefined ? itemData.minimo : current.minimo ?? null,
       ultimaModificacion: new Date(),
     });
   },
 
-  /** Eliminar ítem del inventario general */
+  /**
+   * Elimina un ítem del inventario general
+   * @async
+   * @param {string} id - ID del documento a eliminar
+   */
   eliminarItemInventarioGeneral: async (id) => {
     await deleteDoc(doc(db, "inventario_general", id));
   },
 
-  /** Agregar ítem general + historial */
+  /**
+   * Agrega un ítem al inventario general y registra el movimiento en historial
+   * @async
+   * @param {Object} itemData - Datos completos del material
+   */
   agregarItemGeneralConHistorial: async (itemData) => {
     const actorNombre = await getActorNombre();
 
@@ -129,7 +192,13 @@ export const inventoryService = {
     });
   },
 
-  /** Eliminar ítem general + historial */
+  /**
+   * Elimina un ítem del inventario general y registra la acción en historial
+   * @async
+   * @param {string} itemId - ID del material a eliminar
+   * @param {Object} item - Objeto completo del material (para registro)
+   * @param {string} [razon="Eliminación"] - Razón de la eliminación
+   */
   eliminarItemGeneralConHistorial: async (
     itemId,
     item,
@@ -155,7 +224,20 @@ export const inventoryService = {
    * 2. HISTORIAL DE MOVIMIENTOS
    * ====================================================== */
 
-  /** Registrar movimiento en el historial */
+  /**
+   * Registra un movimiento en el historial de inventario
+   * @async
+   * @param {Object} movementData - Datos del movimiento
+   * @param {string} movementData.material - Nombre del material
+   * @param {number} movementData.cantidad - Cantidad movida
+   * @param {string} movementData.tipo - Tipo de movimiento (entrada, salida, uso, etc.)
+   * @param {string} movementData.origen - Origen del movimiento
+   * @param {string} movementData.destino - Destino del movimiento
+   * @param {string} [movementData.usuario] - Usuario que realizó la acción
+   * @param {string} movementData.unidad - Unidad de medida
+   * @param {string} [movementData.notas] - Notas adicionales
+   * @returns {Promise<Object>} Referencia del documento creado (contiene ID para gastos)
+   */
   registrarMovimiento: async (movementData) => {
     const actorNombre = await getActorNombre();
 
@@ -167,10 +249,14 @@ export const inventoryService = {
       timestamp: new Date(),
     });
 
-    return ref; // ✅ NUEVO: usamos ref.id para el gasto
+    return ref; // ✅ Retorna referencia para usar ID en registro de gastos
   },
 
-  /** Obtener historial de movimientos ordenados por fecha descendente */
+  /**
+   * Obtiene el historial completo de movimientos ordenado por fecha descendente
+   * @async
+   * @returns {Promise<Array<Object>>} Lista de movimientos históricos
+   */
   obtenerHistorialMovimientos: async () => {
     const q = query(
       collection(db, "inventario_movimientos"),
@@ -181,12 +267,19 @@ export const inventoryService = {
   },
 
   /* ======================================================
-   * 3. MOVIMIENTO DESDE INVENTARIO GENERAL → PROYECTO
+   * 3. MOVIMIENTOS DESDE INVENTARIO GENERAL HACIA PROYECTOS
    * ====================================================== */
 
   /**
-   * Descontar inventario general y sumar al inventario de un proyecto.
-   * NO registra historial, solo hace el movimiento.
+   * Descuenta material del inventario general y lo suma al inventario de un proyecto
+   * NO registra historial - solo realiza el movimiento físico
+   * @async
+   * @param {Object} moveData - Datos del movimiento
+   * @param {string} moveData.itemId - ID del material en inventario general
+   * @param {Object} moveData.item - Objeto completo del material
+   * @param {number} moveData.cantidad - Cantidad a mover
+   * @param {string} moveData.proyectoDestino - ID del proyecto destino
+   * @throws {Error} Si el material no existe o no hay stock suficiente
    */
   moverAProyecto: async (moveData) => {
     const { itemId, item, cantidad, proyectoDestino } = moveData;
@@ -265,8 +358,14 @@ export const inventoryService = {
   },
 
   /**
-   * Movimiento a proyecto + historial
-   * (usado desde Inventario General)
+   * Mueve material a un proyecto y registra tanto el historial como el gasto real
+   * Utilizado desde la pantalla de Inventario General
+   * @async
+   * @param {Object} moveData - Datos del movimiento
+   * @param {Object} moveData.item - Material a mover
+   * @param {number} moveData.cantidad - Cantidad a mover
+   * @param {string} moveData.proyectoDestino - ID del proyecto destino
+   * @param {string} [moveData.proyectoDestinoTitle] - Título del proyecto destino
    */
   moverAProyectoConHistorial: async (moveData) => {
     const { item, cantidad, proyectoDestino, proyectoDestinoTitle } = moveData;
@@ -275,7 +374,7 @@ export const inventoryService = {
 
     const actorNombre = await getActorNombre();
 
-    // ✅ 1) Movimiento con id
+    // ✅ 1) Registrar movimiento en historial (obtiene ID para gasto)
     const movRef = await inventoryService.registrarMovimiento({
       material: item.nombre,
       cantidad: Number(cantidad),
@@ -289,10 +388,10 @@ export const inventoryService = {
       notas: "Movimiento desde inventario general al proyecto",
     });
 
-    // ✅ 2) Gasto real persistente en proyecto destino
+    // ✅ 2) Registrar gasto real persistente en el proyecto destino
     const qty = Number(cantidad) || 0;
     const unit = Number(item.precio ?? 0);
-    const fase = getFaseCompra(item.codigo);
+    const fase = getFaseCompra(item.codigo); // Determinar fase basada en código
 
     await setDoc(
       doc(db, "proyectos", proyectoDestino, "gastosMaterial", movRef.id),
@@ -302,7 +401,7 @@ export const inventoryService = {
         categoria: item.categoria || "",
         tipo_medida: item.tipo_medida || "Unidad",
 
-        fase,
+        fase, // fase1 o fase2 según clasificación
         cantidad: qty,
         precioUnitario: unit,
         total: unit * qty,
@@ -311,13 +410,19 @@ export const inventoryService = {
         createdBy: actorNombre,
 
         origen: "ingreso_inventario_proyecto",
-        source: "inventario_general",
+        source: "inventario_general", // Indica que viene del inventario general
       }
     );
   },
 
   /**
-   * Asignar material a proyecto con historial (vista desde ProjectStockScreen)
+   * Alias para mover material a proyecto con historial (desde ProjectStockScreen)
+   * @async
+   * @param {Object} args - Argumentos de asignación
+   * @param {string} args.projectId - ID del proyecto destino
+   * @param {Object} args.material - Material a asignar
+   * @param {number} args.cantidad - Cantidad a asignar
+   * @param {string} [args.proyectoTitle] - Título del proyecto
    */
   asignarMaterialAProyectoConHistorial: async ({
     projectId,
@@ -335,8 +440,11 @@ export const inventoryService = {
   },
 
   /**
-   * Agregar material externo al proyecto (comprado directo),
-   * SIN tocar inventario general pero exigiendo que exista en catálogo.
+   * Agrega material externo (comprado directamente) al proyecto
+   * SIN afectar el inventario general, pero exige que el material exista en el catálogo
+   * Registra gasto real en el proyecto
+   * @async
+   * @param {Object} args - Datos del material externo
    */
   agregarMaterialExternoAProyecto: async ({
     projectId,
@@ -386,7 +494,7 @@ export const inventoryService = {
       });
     }
 
-    // ✅ Movimiento con id
+    // ✅ Registrar movimiento en historial
     const movRef = await inventoryService.registrarMovimiento({
       material: material.nombre,
       cantidad: qty,
@@ -398,7 +506,7 @@ export const inventoryService = {
       notas: "Material externo agregado directamente al proyecto",
     });
 
-    // ✅ Gasto real persistente en proyecto destino
+    // ✅ Registrar gasto real en proyecto destino
     const unit = Number(material.precio ?? 0);
     const fase = getFaseCompra(material.codigo);
 
@@ -417,17 +525,19 @@ export const inventoryService = {
       createdBy: actorNombre,
 
       origen: "ingreso_inventario_proyecto",
-      source: "externo",
+      source: "externo", // Indica que es una compra directa externa
     });
   },
 
   /* ======================================================
-   * 4. USO, DEVOLUCIÓN Y TRANSFERENCIA ENTRE PROYECTOS
+   * 4. OPERACIONES DE USO, DEVOLUCIÓN Y TRANSFERENCIA ENTRE PROYECTOS
    * ====================================================== */
 
   /**
-   * Registrar uso de material dentro de un proyecto
-   * ✅ YA NO registra gasto real (solo consumo + movimiento)
+   * Registra el uso de material dentro de un proyecto
+   * Descuenta del inventario del proyecto pero NO registra gasto real
+   * @async
+   * @param {Object} args - Datos del uso
    */
   registrarUsoMaterialProyecto: async ({
     projectId,
@@ -456,7 +566,7 @@ export const inventoryService = {
       updatedBy: actorNombre,
     });
 
-    // 2) Registrar movimiento en historial de inventario
+    // 2) Registrar movimiento en historial
     await inventoryService.registrarMovimiento({
       material: data.nombre,
       cantidad: qty,
@@ -468,12 +578,14 @@ export const inventoryService = {
       notas: "Uso de material en proyecto",
     });
 
-    // ❌ NO HAY GASTO REAL AQUÍ
+    // ❌ NO se registra gasto real aquí (ya fue registrado al ingresar el material)
   },
 
   /**
-   * Devolver material del proyecto al inventario general
-   * (sin afectar la inversión original del proyecto).
+   * Devuelve material desde un proyecto al inventario general
+   * No afecta la inversión original del proyecto
+   * @async
+   * @param {Object} args - Datos de la devolución
    */
   devolverMaterialAInventarioGeneral: async ({
     projectId,
@@ -499,16 +611,16 @@ export const inventoryService = {
 
     const actorNombre = await getActorNombre();
 
-    // Restar solo de cantidadActual
+    // Restar solo de cantidadActual (no de cantidadOriginal)
     await updateDoc(refProyecto, {
       cantidadActual: disponible - qty,
       updatedAt: new Date(),
       updatedBy: actorNombre,
     });
 
-    // 2. Actualizar inventario general
+    // 2. Actualizar inventario general según tipo de material
     if (dataProyecto.tipo_medida !== "Metro") {
-      // Unidades: sumar al ítem existente (por código o nombre)
+      // Unidades: sumar al ítem existente en inventario general
       const genSnap = await getDocs(collection(db, "inventario_general"));
 
       let match = null;
@@ -533,7 +645,7 @@ export const inventoryService = {
         ultimaModificacion: new Date(),
       });
     } else {
-      // Metros: crear ítem nuevo separado
+      // Metros: crear ítem nuevo separado (no se mezclan metrajes)
       await addDoc(collection(db, "inventario_general"), {
         nombre: `${dataProyecto.nombre} (sobrante proyecto ${proyectoTitle || projectId})`,
         categoria: dataProyecto.categoria || "",
@@ -547,6 +659,7 @@ export const inventoryService = {
       });
     }
 
+    // Registrar movimiento en historial
     await inventoryService.registrarMovimiento({
       material: dataProyecto.nombre,
       cantidad: qty,
@@ -560,8 +673,10 @@ export const inventoryService = {
   },
 
   /**
-   * Transferir material entre proyectos, sin pasar por inventario general.
-   * ✅ Registra gasto real SOLO en el destino (proyecto B)
+   * Transfiere material entre proyectos sin pasar por inventario general
+   * Registra gasto real SOLO en el proyecto destino
+   * @async
+   * @param {Object} args - Datos de la transferencia
    */
   transferirMaterialEntreProyectos: async ({
     origenId,
@@ -635,7 +750,7 @@ export const inventoryService = {
       });
     }
 
-    // ✅ Movimiento con id
+    // ✅ Registrar movimiento en historial
     const movRef = await inventoryService.registrarMovimiento({
       tipo: "transferencia",
       material: dataOrigen.nombre,
@@ -647,7 +762,7 @@ export const inventoryService = {
       notas: "Transferencia de material entre proyectos",
     });
 
-    // ✅ Gasto real SOLO en el destino
+    // ✅ Registrar gasto real SOLO en el proyecto destino
     const unit = Number(dataOrigen.precio ?? 0);
     const fase = getFaseCompra(dataOrigen.codigo);
 
@@ -672,49 +787,60 @@ export const inventoryService = {
   },
 
   /* ======================================================
-   * 5. ALIAS EN INGLÉS PARA COMPATIBILIDAD
+   * 5. ALIAS EN INGLÉS PARA COMPATIBILIDAD CON CÓDIGO EXISTENTE
    * ====================================================== */
 
+  /** @alias getAllGeneral */
   getAllGeneralItems() {
     return this.getAllGeneral();
   },
 
+  /** @alias agregarItemInventarioGeneral */
   addGeneralItem(itemData) {
     return this.agregarItemInventarioGeneral(itemData);
   },
 
+  /** @alias actualizarItemInventarioGeneral */
   updateGeneralItem(id, data) {
     return this.actualizarItemInventarioGeneral(id, data);
   },
 
+  /** @alias eliminarItemInventarioGeneral */
   deleteGeneralItem(id) {
     return this.eliminarItemInventarioGeneral(id);
   },
 
+  /** @alias agregarItemGeneralConHistorial */
   addGeneralItemWithHistory(itemData) {
     return this.agregarItemGeneralConHistorial(itemData);
   },
 
+  /** @alias eliminarItemGeneralConHistorial */
   deleteGeneralItemWithHistory(itemId, item, razon) {
     return this.eliminarItemGeneralConHistorial(itemId, item, razon);
   },
 
+  /** @alias registrarMovimiento */
   registerMovement(data) {
     return this.registrarMovimiento(data);
   },
 
+  /** @alias obtenerHistorialMovimientos */
   getMovementHistory() {
     return this.obtenerHistorialMovimientos();
   },
 
+  /** @alias moverAProyecto */
   moveToProject(moveData) {
     return this.moverAProyecto(moveData);
   },
 
+  /** @alias moverAProyectoConHistorial */
   moveToProjectWithHistory(moveData) {
     return this.moverAProyectoConHistorial(moveData);
   },
 
+  /** @alias moverAProyectoConHistorial */
   moveToProjectWithHistoryLegacy({
     itemId,
     item,
@@ -731,18 +857,22 @@ export const inventoryService = {
     });
   },
 
+  /** @alias asignarMaterialAProyectoConHistorial */
   assignToProjectWithHistory(args) {
     return this.asignarMaterialAProyectoConHistorial(args);
   },
 
+  /** @alias registrarUsoMaterialProyecto */
   updateProjectUsage(args) {
     return this.registrarUsoMaterialProyecto(args);
   },
 
+  /** @alias devolverMaterialAInventarioGeneral */
   returnMaterialToGeneral(args) {
     return this.devolverMaterialAInventarioGeneral(args);
   },
 
+  /** @alias transferirMaterialEntreProyectos */
   transferBetweenProjects(args) {
     return this.transferirMaterialEntreProyectos(args);
   },

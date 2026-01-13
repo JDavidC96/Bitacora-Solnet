@@ -1,6 +1,22 @@
 // components/inventory/AddItemButton.js
 import { StyleSheet, Text, TouchableOpacity } from 'react-native';
 
+/**
+ * Botón reutilizable para agregar ítems en diferentes secciones del inventario
+ * 
+ * @component
+ * @param {Object} props - Propiedades del componente
+ * @param {Function} props.onPress - Función que se ejecuta al presionar el botón
+ * @returns {JSX.Element} Botón con estilo consistente para agregar ítems
+ * 
+ * @example
+ * // Uso básico
+ * <AddItemButton onPress={() => setIsModalVisible(true)} />
+ * 
+ * @example
+ * // Uso con función específica
+ * <AddItemButton onPress={handleAddItem} />
+ */
 export default function AddItemButton({ onPress }) {
   return (
     <TouchableOpacity style={styles.button} onPress={onPress}>

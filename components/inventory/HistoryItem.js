@@ -3,7 +3,10 @@
 
 import { StyleSheet, Text, View } from "react-native";
 
-// Íconos visuales por tipo de movimiento
+/**
+ * Mapeo de íconos visuales por tipo de movimiento
+ * @constant {Object}
+ */
 const typeIcons = {
   entrada: "⬆️",              // entrada al inventario general
   salida: "⬇️",               // salida del inventario general
@@ -14,7 +17,10 @@ const typeIcons = {
   transferencia: "🔀",        // entre proyectos
 };
 
-// Colores por tipo (borde y título)
+/**
+ * Colores por tipo de movimiento (borde y título)
+ * @constant {Object}
+ */
 const typeColors = {
   entrada: "#22C55E",
   salida: "#EF4444",
@@ -25,6 +31,40 @@ const typeColors = {
   transferencia: "#A855F7",
 };
 
+/**
+ * Componente de tarjeta para mostrar un movimiento individual del historial
+ * Muestra información detallada de cada movimiento con colores e íconos según el tipo
+ * 
+ * @component
+ * @param {Object} props - Propiedades del componente
+ * @param {Object} props.movement - Objeto que representa el movimiento
+ * @param {string} props.movement.tipo - Tipo de movimiento (entrada, salida, uso, etc.)
+ * @param {string} props.movement.material - Nombre del material
+ * @param {string} props.movement.codigo - Código del material
+ * @param {number} props.movement.cantidad - Cantidad movida
+ * @param {string} props.movement.unidad - Unidad de medida
+ * @param {string} props.movement.origen - Origen del movimiento
+ * @param {string} props.movement.destino - Destino del movimiento
+ * @param {string} props.movement.usuario - Usuario que realizó el movimiento
+ * @param {string} props.movement.notas - Notas adicionales
+ * @param {Date|Object} props.movement.timestamp - Fecha y hora del movimiento
+ * @returns {JSX.Element} Tarjeta estilizada con información del movimiento
+ * 
+ * @example
+ * // Uso básico
+ * <HistoryItem
+ *   movement={{
+ *     tipo: "entrada",
+ *     material: "Cemento",
+ *     cantidad: 100,
+ *     unidad: "kg",
+ *     origen: "Proveedor XYZ",
+ *     destino: "Almacén Central",
+ *     usuario: "admin",
+ *     timestamp: new Date()
+ *   }}
+ * />
+ */
 export default function HistoryItem({ movement }) {
   const {
     tipo,
@@ -39,9 +79,11 @@ export default function HistoryItem({ movement }) {
     timestamp,
   } = movement;
 
+  // Obtener ícono y color según el tipo de movimiento
   const icon = typeIcons[tipo] || "📄";
   const color = typeColors[tipo] || "#64748B";
 
+  // Formatear fecha del timestamp
   const fecha = timestamp
     ? new Date(timestamp?.toDate?.() || timestamp).toLocaleString()
     : "—";
@@ -54,27 +96,29 @@ export default function HistoryItem({ movement }) {
         <Text style={styles.date}>{fecha}</Text>
       </View>
 
-      {/* Material */}
+      {/* Nombre del material */}
       <Text style={styles.material}>{material}</Text>
 
+      {/* Código del material (opcional) */}
       {codigo ? (
         <Text style={styles.code}>Código: {codigo}</Text>
       ) : null}
 
+      {/* Cantidad y unidad */}
       <Text style={styles.qty}>
         Cantidad: <Text style={{ color: "#FFF" }}>{cantidad}</Text>{" "}
         {unidad || ""}
       </Text>
 
-      {/* Origen -> destino */}
+      {/* Ruta: Origen → Destino */}
       <Text style={styles.route}>
         {origen || "—"} <Text style={styles.arrow}>→</Text> {destino || "—"}
       </Text>
 
-      {/* Usuario */}
+      {/* Usuario que realizó el movimiento */}
       <Text style={styles.user}>Usuario: {usuario || "—"}</Text>
 
-      {/* Notas */}
+      {/* Notas adicionales (opcional) */}
       {notas ? <Text style={styles.notes}>📝 {notas}</Text> : null}
     </View>
   );

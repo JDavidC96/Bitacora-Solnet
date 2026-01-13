@@ -3,6 +3,25 @@ import * as ImagePicker from "expo-image-picker";
 import { useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+/**
+ * Componente para subir imágenes desde la cámara o galería
+ * Permite seleccionar múltiples imágenes y muestra miniaturas de las seleccionadas
+ * 
+ * @component
+ * @param {Object} props - Propiedades del componente
+ * @param {Function} props.onImagesSelected - Función que se ejecuta al seleccionar imágenes
+ * @param {Array<string>} [props.selectedImages=[]] - Array de URIs de imágenes ya seleccionadas
+ * @param {Function} props.onClearImages - Función que se ejecuta al limpiar todas las imágenes
+ * @returns {JSX.Element} Componente de carga de imágenes con vista previa
+ * 
+ * @example
+ * // Uso básico
+ * <ImageUploader
+ *   onImagesSelected={(uris) => setImages([...images, ...uris])}
+ *   selectedImages={images}
+ *   onClearImages={() => setImages([])}
+ * />
+ */
 export default function ImageUploader({
   onImagesSelected,
   selectedImages = [],
@@ -10,7 +29,17 @@ export default function ImageUploader({
 }) {
   const [uploading, setUploading] = useState(false);
 
+  /**
+   * Maneja el proceso de carga de imágenes
+   * Muestra un alert para elegir entre cámara o galería
+   * Solicita permisos y procesa la selección de imágenes
+   * 
+   * @async
+   * @function handleUploadImage
+   * @returns {Promise<void>}
+   */
   const handleUploadImage = async () => {
+    // Mostrar opciones de selección (cámara o galería)
     const opcion = await new Promise((resolve) => {
       Alert.alert(
         "Añadir imagen",
@@ -30,6 +59,7 @@ export default function ImageUploader({
     try {
       let result;
       
+      // Proceso para tomar foto con cámara
       if (opcion === "camera") {
         const camPerm = await ImagePicker.requestCameraPermissionsAsync();
         if (camPerm.status !== "granted") {
@@ -43,6 +73,7 @@ export default function ImageUploader({
           allowsEditing: true,
         });
       } else {
+        // Proceso para seleccionar de galería
         const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (libPerm.status !== "granted") {
           Alert.alert("Permiso requerido", "Necesitas permitir acceso a la galería.");
@@ -58,6 +89,7 @@ export default function ImageUploader({
 
       if (result.canceled) return;
 
+      // Extraer URIs de las imágenes seleccionadas
       const newUris = result.assets
         ? result.assets.map((a) => a.uri)
         : result.uri
@@ -78,6 +110,7 @@ export default function ImageUploader({
 
   return (
     <View style={styles.container}>
+      {/* Botón para iniciar la carga de imágenes */}
       <TouchableOpacity
         style={[styles.uploadButton, uploading && styles.disabledButton]}
         onPress={handleUploadImage}
@@ -88,6 +121,7 @@ export default function ImageUploader({
         </Text>
       </TouchableOpacity>
 
+      {/* Vista previa de imágenes seleccionadas */}
       {selectedImages.length > 0 && (
         <View style={styles.imagesContainer}>
           <View style={styles.imagesHeader}>

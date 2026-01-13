@@ -1,16 +1,16 @@
 // screens/NoVinculantesScreen.js
 import { useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 import { doc, getDoc } from "firebase/firestore";
@@ -20,14 +20,55 @@ import { useUser } from "../context/UserContext";
 import { db } from "../firebase/firebaseConfig";
 
 import {
-    getNoVinculantesConstants,
-    updateNoVinculantesConstants,
+  getNoVinculantesConstants,
+  updateNoVinculantesConstants,
 } from "../services/noVinculantesService";
 
 import { exportCuadroNaranjaPdf } from "../services/noVinculantesPdfService";
 
+/**
+ * PANTALLA DE CÁLCULO PARA PROYECTOS NO VINCULANTES
+ * 
+ * Descripción:
+ * Esta pantalla permite calcular y generar propuestas técnicas y económicas para
+ * proyectos de energía solar fotovoltaica (no vinculantes). Incluye:
+ * - Cálculo de dimensionamiento del sistema fotovoltaico
+ * - Generación de cuadro naranja con especificaciones técnicas
+ * - Exportación a PDF con información del cliente
+ * - Gestión de constantes de precio (solo administradores/ingenieros)
+ * 
+ * Funcionalidades principales:
+ * 1. Ingreso de datos iniciales (consumo, rendimiento, panel, costo kWh)
+ * 2. Selección entre microinversores o inversor central
+ * 3. Captura de información del cliente
+ * 4. Cálculo automático de dimensionamiento y costos
+ * 5. Visualización de cuadro naranja con resultados
+ * 6. Exportación a PDF con leyendas y datos del cliente
+ * 7. Configuración de constantes A y B para fórmula de precio
+ * 
+ * Fórmulas implementadas:
+ * - kWp a instalar = (Consumo * 12) / Rendimiento
+ * - Número de paneles = ceil(kWp / (PanelW / 1000))
+ * - Número de microinversores = ceil(#paneles / 4)
+ * - Área paneles = #paneles * 2.7 * 1.05
+ * - Precio proyecto = A * (Potencia pico)^(1 - B)
+ * 
+ * Roles de usuario:
+ * - Administrador/Ingeniero: Puede editar constantes A y B
+ * - Otros roles: Solo pueden usar la calculadora y generar PDFs
+ * 
+ * @component
+ * @example
+ * return <NoVinculantesScreen />
+ */
+
 const ceil = (n) => Math.ceil(Number(n) || 0);
 
+/**
+ * Convierte texto a número, soportando formatos con separadores decimales
+ * @param {string|number} txt - Valor a convertir
+ * @returns {number} Número convertido (0 si no es válido)
+ */
 function toNum(txt) {
   if (txt === null || txt === undefined) return 0;
   const s = String(txt).replace(/\./g, "").replace(",", "."); // soporta 1.021,43
@@ -35,6 +76,12 @@ function toNum(txt) {
   return Number.isFinite(v) ? v : 0;
 }
 
+/**
+ * Formatea un valor como moneda COP
+ * @param {number} value - Valor a formatear
+ * @param {number} decimals - Decimales a mostrar
+ * @returns {string} Valor formateado en pesos colombianos
+ */
 function formatCOP(value, decimals = 0) {
   const v = Number(value) || 0;
   try {
@@ -50,6 +97,12 @@ function formatCOP(value, decimals = 0) {
   }
 }
 
+/**
+ * Formatea un número con separadores de miles
+ * @param {number} value - Valor a formatear
+ * @param {number} decimals - Decimales a mostrar
+ * @returns {string} Número formateado
+ */
 function formatNumber(value, decimals = 2) {
   const v = Number(value) || 0;
   try {
@@ -62,51 +115,67 @@ function formatNumber(value, decimals = 2) {
   }
 }
 
+// Leyenda para el PDF exportado
 const PDF_LEGEND = `* Estos están sujetos a verificación técnica mediante visita de ingeniería en sitio y simulación detallada del sistema fotovoltaico utilizando el software especializado PVSOL. Cualquier ajuste resultante de esta validación será informado oportunamente para su aprobación.
 **El valor total del proyecto contemplado es aproximado, el valor real dependera del diseño detallado y simulación es software especializado PVSOL realizados posterior a la visita de ingenieria en sitio en la cual se identificaran en detalle los requerimientos especificos del cliente.`;
 
+/**
+ * Componente principal de la pantalla de proyectos no vinculantes
+ * @returns {JSX.Element} Componente renderizado
+ */
 export default function NoVinculantesScreen() {
+  // Contexto de usuario
   const { role, user, loading: userLoading } = useUser();
 
+  // Determina si el usuario puede editar constantes
   const canEditConstants = useMemo(() => {
     return ["Administrador", "Ingeniero"].includes(role);
   }, [role]);
 
-  // Nombre del usuario desde usuarios_permitidos
+  // Estado para el nombre del usuario desde Firestore
   const [userNombre, setUserNombre] = useState(null);
   const [loadingNombre, setLoadingNombre] = useState(true);
 
-  // Obtener el nombre del usuario activo
+  // Label del usuario activo (combina nombre y email)
   const activeUserLabel = useMemo(() => {
     if (userLoading || loadingNombre) return "Cargando…";
     return userNombre || user?.email || "—";
   }, [userLoading, loadingNombre, userNombre, user?.email]);
 
-  // Inputs
-  const [consumoMes, setConsumoMes] = useState("4221");
-  const [rendimiento, setRendimiento] = useState("1400");
-  const [panelW, setPanelW] = useState("620");
-  const [costoKwh, setCostoKwh] = useState("1021.43");
+  // --- ESTADOS PARA DATOS DE ENTRADA ---
+  const [consumoMes, setConsumoMes] = useState("");       // Consumo mensual en kWh
+  const [rendimiento, setRendimiento] = useState("");     // Rendimiento anual (kWh/kWp-año)
+  const [panelW, setPanelW] = useState("");               // Potencia del panel en W
+  const [costoKwh, setCostoKwh] = useState("");           // Costo por kWh
 
-  // Inversor / micro (excluyentes)
-  const [modo, setModo] = useState("micro"); // "micro" | "inversor"
-  const [inversorKw, setInversorKw] = useState("2");
-  const [microKw, setMicroKw] = useState("2");
+  // --- ESTADOS PARA CONFIGURACIÓN DE INVERSOR ---
+  const [modo, setModo] = useState("micro");              // "micro" | "inversor"
+  const [inversorKw, setInversorKw] = useState("");       // Potencia del inversor (kW)
+  const [microKw, setMicroKw] = useState("");             // Potencia del microinversor (kW)
 
-  // Constantes precio
+  // --- ESTADOS PARA INFORMACIÓN DEL CLIENTE ---
+  const [clienteNombre, setClienteNombre] = useState("");
+  const [clienteTelefono, setClienteTelefono] = useState("");
+  const [clienteCiudad, setClienteCiudad] = useState("");
+  const [clienteDireccion, setClienteDireccion] = useState("");
+
+  // --- ESTADOS PARA CONSTANTES DE PRECIO ---
   const [loadingConstants, setLoadingConstants] = useState(true);
   const [savingConstants, setSavingConstants] = useState(false);
 
-  const [A, setA] = useState(6155745.12);
-  const [B, setB] = useState(0.12);
+  const [A, setA] = useState(6155745.12);                 // Constante A de la fórmula
+  const [B, setB] = useState(0.12);                       // Constante B de la fórmula
 
-  const [editA, setEditA] = useState("");
-  const [editB, setEditB] = useState("");
+  const [editA, setEditA] = useState("");                 // Valor en edición de A
+  const [editB, setEditB] = useState("");                 // Valor en edición de B
 
-  // Export PDF
+  // --- ESTADO PARA EXPORTACIÓN PDF ---
   const [exportingPdf, setExportingPdf] = useState(false);
 
-  // Cargar nombre del usuario (robusto ante timing del contexto)
+  /**
+   * Efecto para cargar el nombre del usuario desde Firestore
+   * Se ejecuta cuando cambia el usuario o su estado de carga
+   */
   useEffect(() => {
     let active = true;
 
@@ -155,6 +224,10 @@ export default function NoVinculantesScreen() {
     };
   }, [user, userLoading]);
 
+  /**
+   * Efecto para cargar las constantes A y B desde Firestore
+   * Se ejecuta solo al montar el componente
+   */
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -176,6 +249,10 @@ export default function NoVinculantesScreen() {
     };
   }, []);
 
+  /**
+   * Memo que calcula todos los resultados basados en los inputs
+   * @returns {Object} Objeto con todos los resultados calculados
+   */
   const resultados = useMemo(() => {
     const consumo = toNum(consumoMes);
     const rend = toNum(rendimiento);
@@ -278,6 +355,10 @@ export default function NoVinculantesScreen() {
     B,
   ]);
 
+  /**
+   * Construye las filas del cuadro naranja para exportar a PDF
+   * @returns {Array<{label: string, value: string}>} Array de objetos con etiqueta y valor
+   */
   const buildOrangeRows = () => {
     const rows = [];
 
@@ -293,19 +374,19 @@ export default function NoVinculantesScreen() {
     // IMPORTANTE: usar "modo" (state), no "resultados.modo"
     if (modo === "inversor") {
       rows.push({
-        label: "Potencia en inversor",
+        label: "Potencia en inversor*",
         value: `${formatNumber(resultados.potenciaNominalKw, 2)} kW`,
       });
       rows.push({ label: "Microinversor", value: "—" });
     } else {
-      rows.push({ label: "Potencia en inversor", value: "—" });
+      rows.push({ label: "Potencia en inversor*", value: "—" });
       rows.push({
         label: `Microinversor ${formatNumber(resultados.potenciaNominalKw, 2)} kW*`,
         value: `${resultados.numMicros} UND`,
       });
     }
 
-    rows.push({ label: "Batería 5kWh", value: `1 UND` });
+    rows.push({ label: "Batería 5kWh*", value: `1 UND` });
     rows.push({
       label: "Área paneles*",
       value: `${formatNumber(resultados.areaPanelesM2, 3)} m²`,
@@ -330,13 +411,13 @@ export default function NoVinculantesScreen() {
       value: `${formatNumber(resultados.ahorroPct, 2)} %`,
     });
 
-    rows.push({ label: "Sistema electrico asociado al Servicio", value: "1 UND" });
-    rows.push({ label: "Ingenieria de detalle", value: "1 UND" });
-    rows.push({ label: "Smart Meter", value: "1 UND" });
-    rows.push({ label: "Medidor bidireccional", value: "1 UND" });
-    rows.push({ label: "Certificación RETIE", value: "1 UND" });
-    rows.push({ label: "Acompañamiento tramites UPME", value: "1 UND" });
-    rows.push({ label: "Tramites CREG", value: "1 UND" });
+    rows.push({ label: "Sistema electrico asociado al Servicio*", value: "1 UND" });
+    rows.push({ label: "Ingenieria de detalle*", value: "1 UND" });
+    rows.push({ label: "Smart Meter*", value: "1 UND" });
+    rows.push({ label: "Medidor bidireccional*", value: "1 UND" });
+    rows.push({ label: "Certificación RETIE*", value: "1 UND" });
+    rows.push({ label: "Acompañamiento tramites UPME*", value: "1 UND" });
+    rows.push({ label: "Tramites CREG*", value: "1 UND" });
     rows.push({ label: "Tablero DC*", value: "1 UND" });
     rows.push({ label: "Tablero AC*", value: "1 UND" });
 
@@ -346,24 +427,38 @@ export default function NoVinculantesScreen() {
     });
 
     rows.push({
-      label: "Precio por kWp",
+      label: "Precio por kWp**",
       value: formatCOP(resultados.precioKwp, 0),
     });
 
     return rows;
   };
 
+  /**
+   * Maneja la exportación del cuadro naranja a PDF
+   * @async
+   */
   const handleExportPdf = async () => {
     try {
       setExportingPdf(true);
 
       const rows = buildOrangeRows();
+      
+      // Crear objeto con información del cliente
+      const clienteInfo = {
+        nombre: clienteNombre.trim(),
+        telefono: clienteTelefono.trim(),
+        ciudad: clienteCiudad.trim(),
+        direccion: clienteDireccion.trim(),
+      };
+
       await exportCuadroNaranjaPdf({
         rows,
-        userLabel: userNombre || user?.email || "—", // usar nombre o email
+        userLabel: userNombre || user?.email || "—",
         legendText: PDF_LEGEND,
         title: "DESCRIPCIÓN DEL PROYECTO",
         filename: "no-vinculantes-cuadro.pdf",
+        clienteInfo, // Pasamos la info del cliente al PDF
       });
 
       Alert.alert("Listo", "PDF generado.");
@@ -375,6 +470,10 @@ export default function NoVinculantesScreen() {
     }
   };
 
+  /**
+   * Guarda las constantes A y B en Firestore
+   * @async
+   */
   const onSaveConstants = async () => {
     if (!canEditConstants) return;
 
@@ -411,6 +510,9 @@ export default function NoVinculantesScreen() {
     }
   };
 
+  /**
+   * Restablece las constantes A y B a sus valores por defecto
+   */
   const onResetDefaults = () => {
     if (!canEditConstants) return;
     Alert.alert(
@@ -430,6 +532,7 @@ export default function NoVinculantesScreen() {
     );
   };
 
+  // Pantalla de carga mientras se cargan las constantes
   if (loadingConstants) {
     return (
       <View style={styles.center}>
@@ -465,6 +568,7 @@ export default function NoVinculantesScreen() {
             label="Consumo [kWh/mes] (máximo histórico)"
             value={consumoMes}
             onChangeText={setConsumoMes}
+            placeholder="4221"
             keyboardType="numeric"
           />
 
@@ -472,6 +576,7 @@ export default function NoVinculantesScreen() {
             label="Rendimiento (estándar)"
             value={rendimiento}
             onChangeText={setRendimiento}
+            placeholder="1400"
             keyboardType="numeric"
           />
 
@@ -479,6 +584,7 @@ export default function NoVinculantesScreen() {
             label="Panel [W] (ej: 620 / 615 / 605)"
             value={panelW}
             onChangeText={setPanelW}
+            placeholder="620"
             keyboardType="numeric"
           />
 
@@ -486,6 +592,7 @@ export default function NoVinculantesScreen() {
             label="Costo kWh"
             value={costoKwh}
             onChangeText={setCostoKwh}
+            placeholder="1021.43"
             keyboardType="numeric"
           />
 
@@ -534,6 +641,7 @@ export default function NoVinculantesScreen() {
               label="Microinversor [kW] (nominal)"
               value={microKw}
               onChangeText={setMicroKw}
+              placeholder="2"
               keyboardType="numeric"
             />
           ) : (
@@ -541,9 +649,46 @@ export default function NoVinculantesScreen() {
               label="Inversor [kW] (nominal)"
               value={inversorKw}
               onChangeText={setInversorKw}
+              placeholder="2"
               keyboardType="numeric"
             />
           )}
+        </View>
+
+        {/* INFORMACIÓN DEL CLIENTE */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Información del Cliente</Text>
+          
+          <Field
+            label="Nombre del Cliente"
+            value={clienteNombre}
+            onChangeText={setClienteNombre}
+            placeholder="Ingrese el nombre completo"
+          />
+          
+          <Field
+            label="Teléfono"
+            value={clienteTelefono}
+            onChangeText={setClienteTelefono}
+            keyboardType="phone-pad"
+            placeholder="Ej: 3001234567"
+          />
+          
+          <Field
+            label="Ciudad"
+            value={clienteCiudad}
+            onChangeText={setClienteCiudad}
+            placeholder="Ej: Bogotá"
+          />
+          
+          <Field
+            label="Dirección"
+            value={clienteDireccion}
+            onChangeText={setClienteDireccion}
+            placeholder="Dirección completa"
+            multiline={true}
+            style={styles.textArea}
+          />
         </View>
 
         {/* CUADRO NARANJA (EN PANTALLA) */}
@@ -560,7 +705,7 @@ export default function NoVinculantesScreen() {
           />
 
           <OrangeRow
-            label="Potencia en inversor"
+            label="Potencia en inversor*"
             value={
               modo === "inversor"
                 ? `${formatNumber(resultados.potenciaNominalKw, 2)} kW`
@@ -579,7 +724,7 @@ export default function NoVinculantesScreen() {
             value={modo === "micro" ? `${resultados.numMicros} UND` : "—"}
           />
 
-          <OrangeRow label="Batería 5kWh" value="1 UND" />
+          <OrangeRow label="Batería 5kWh*" value="1 UND" />
           <OrangeRow
             label="Área paneles*"
             value={`${formatNumber(resultados.areaPanelesM2, 3)} m²`}
@@ -605,15 +750,15 @@ export default function NoVinculantesScreen() {
           />
 
           <OrangeRow
-            label="Sistema electrico asociado al Servicio"
+            label="Sistema electrico asociado al Servicio*"
             value="1 UND"
           />
-          <OrangeRow label="Ingenieria de detalle" value="1 UND" />
-          <OrangeRow label="Smart Meter" value="1 UND" />
-          <OrangeRow label="Medidor bidireccional" value="1 UND" />
-          <OrangeRow label="Certificación RETIE" value="1 UND" />
-          <OrangeRow label="Acompañamiento tramites UPME" value="1 UND" />
-          <OrangeRow label="Tramites CREG" value="1 UND" />
+          <OrangeRow label="Ingenieria de detalle*" value="1 UND" />
+          <OrangeRow label="Smart Meter*" value="1 UND" />
+          <OrangeRow label="Medidor bidireccional*" value="1 UND" />
+          <OrangeRow label="Certificación RETIE*" value="1 UND" />
+          <OrangeRow label="Acompañamiento tramites UPME*" value="1 UND" />
+          <OrangeRow label="Tramites CREG*" value="1 UND" />
           <OrangeRow label="Tablero DC*" value="1 UND" />
           <OrangeRow label="Tablero AC*" value="1 UND" />
 
@@ -625,7 +770,7 @@ export default function NoVinculantesScreen() {
           </View>
 
           <View style={styles.orangeFootRow}>
-            <Text style={styles.orangeFootLabel}>Precio por kWp</Text>
+            <Text style={styles.orangeFootLabel}>Precio por kWp**</Text>
             <Text style={styles.orangeFootValue}>
               {formatCOP(resultados.precioKwp, 0)}
             </Text>
@@ -702,22 +847,43 @@ export default function NoVinculantesScreen() {
   );
 }
 
-function Field({ label, value, onChangeText, keyboardType = "default" }) {
+/**
+ * Componente reutilizable para campos de entrada
+ * @param {Object} props - Propiedades del componente
+ * @param {string} props.label - Etiqueta del campo
+ * @param {string} props.value - Valor del campo
+ * @param {Function} props.onChangeText - Función para cambiar el valor
+ * @param {string} props.keyboardType - Tipo de teclado
+ * @param {string} props.placeholder - Texto de placeholder
+ * @param {boolean} props.multiline - Si es campo multilínea
+ * @param {Object} props.style - Estilos adicionales
+ * @returns {JSX.Element} Campo de entrada renderizado
+ */
+function Field({ label, value, onChangeText, keyboardType = "default", placeholder = "", multiline = false, style }) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        style={styles.input}
+        style={[styles.input, multiline && styles.textArea, style]}
         keyboardType={keyboardType}
-        placeholder="0"
+        placeholder={placeholder}
         placeholderTextColor="#999"
+        multiline={multiline}
+        numberOfLines={multiline ? 3 : 1}
       />
     </View>
   );
 }
 
+/**
+ * Componente para una fila del cuadro naranja
+ * @param {Object} props - Propiedades del componente
+ * @param {string} props.label - Texto de la etiqueta
+ * @param {string} props.value - Valor a mostrar
+ * @returns {JSX.Element} Fila del cuadro naranja renderizada
+ */
 function OrangeRow({ label, value }) {
   return (
     <View style={styles.orangeRow}>
@@ -729,9 +895,11 @@ function OrangeRow({ label, value }) {
   );
 }
 
+// Constantes de color para el cuadro naranja
 const ORANGE = "#F57C00";
 const ORANGE_LIGHT = "#FFF3E0";
 
+// Estilos de la pantalla
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F2F2F2" },
   content: { padding: 14, paddingBottom: 40 },
@@ -780,6 +948,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E5E5",
     color: "#111",
+    minHeight: 44,
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+    paddingTop: 10,
   },
 
   row: { flexDirection: "row", gap: 10, marginTop: 8 },

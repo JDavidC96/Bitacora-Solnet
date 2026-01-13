@@ -19,19 +19,25 @@ import { db } from "../../firebase/firebaseConfig";
 import { inventoryService } from "../../services/inventoryService";
 import { generateMaterialCode } from "../../utils/codeGenerator";
 
-/* ===============================
- * HELPERS (solo para Cableado)
- * =============================== */
-const normalize = (v = "") =>
-  String(v).toLowerCase().trim().replace(/\s+/g, " ");
-
-const isSameCable = (a, b) => {
-  const n1 = normalize(a?.nombre);
-  const n2 = normalize(b?.nombre);
-  if (!n1 || !n2) return false;
-  return n1 === n2;
-};
-
+/**
+ * Modal para agregar o editar materiales en el inventario general.
+ * 
+ * Este componente permite:
+ * - Agregar nuevos materiales al inventario general
+ * - Editar materiales existentes
+ * - Generar códigos automáticos únicos para cada material
+ * - Gestionar stock mínimo para alertas de inventario bajo
+ * - Manejar lógica especial para categoría "Cableado" (códigos compartidos)
+ * 
+ * @component
+ * @param {Object} props - Propiedades del componente
+ * @param {boolean} props.visible - Controla la visibilidad del modal
+ * @param {Function} props.onClose - Función para cerrar el modal
+ * @param {Object|null} props.item - Ítem a editar (null para agregar nuevo)
+ * @param {Function} props.onSaved - Callback ejecutado después de guardar exitosamente
+ * 
+ * @returns {JSX.Element} Componente modal de agregar/editar items
+ */
 export default function AddEditItemModal({
   visible,
   onClose,
@@ -41,50 +47,84 @@ export default function AddEditItemModal({
   const isEditing = !!item;
 
   // ===============================
-  // ESTADOS
+  // ESTADOS DEL FORMULARIO
   // ===============================
-  const [nombre, setNombre] = useState("");
-  const [categoria, setCategoria] = useState("");
-  const [unidad, setUnidad] = useState("Unidad");
-  const [precio, setPrecio] = useState("");
-  const [cantidad, setCantidad] = useState("");
-  const [notas, setNotas] = useState("");
-  const [codigo, setCodigo] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [nombre, setNombre] = useState(""); // Nombre del material
+  const [categoria, setCategoria] = useState(""); // Categoría del material
+  const [unidad, setUnidad] = useState("Unidad"); // Unidad de medida (Unidad/Metro)
+  const [precio, setPrecio] = useState(""); // Precio unitario
+  const [cantidad, setCantidad] = useState(""); // Cantidad actual en stock
+  const [minimo, setMinimo] = useState(""); // Stock mínimo para alertas
+  const [notas, setNotas] = useState(""); // Notas adicionales
+  const [codigo, setCodigo] = useState(""); // Código único del material
+  const [saving, setSaving] = useState(false); // Estado de guardado
 
   // ===============================
-  // EFECTO DE CARGA
+  // FUNCIONES AUXILIARES
+  // ===============================
+  
+  /**
+   * Normaliza texto para comparación (minúsculas, sin espacios extras)
+   * @param {string} v - Texto a normalizar
+   * @returns {string} Texto normalizado
+   */
+  const normalize = (v = "") =>
+    String(v).toLowerCase().trim().replace(/\s+/g, " ");
+
+  /**
+   * Determina si dos materiales de cableado son el mismo basado en nombre normalizado
+   * @param {Object} a - Primer ítem de cableado
+   * @param {Object} b - Segundo ítem de cableado
+   * @returns {boolean} True si son el mismo cable
+   */
+  const isSameCable = (a, b) => {
+    const n1 = normalize(a?.nombre);
+    const n2 = normalize(b?.nombre);
+    if (!n1 || !n2) return false;
+    return n1 === n2;
+  };
+
+  // ===============================
+  // EFECTO DE CARGA INICIAL
   // ===============================
   useEffect(() => {
     if (!visible) return;
 
     if (isEditing) {
+      // Cargar datos del ítem existente para edición
       setNombre(item.nombre || "");
       setCategoria(item.categoria || "");
       setUnidad(item.tipo_medida || "Unidad");
       setPrecio(item.precio?.toString() || "");
       setCantidad(item.cantidad?.toString() || "");
+      setMinimo(item.minimo?.toString() || ""); // Cargar stock mínimo si existe
       setNotas(item.notas || "");
       setCodigo(item.codigo || "");
     } else {
+      // Restablecer campos para nuevo ítem
       resetFields();
     }
   }, [visible]);
 
+  /**
+   * Restablece todos los campos del formulario a valores vacíos
+   */
   const resetFields = () => {
     setNombre("");
     setCategoria("");
     setUnidad("Unidad");
     setPrecio("");
     setCantidad("");
+    setMinimo(""); // Restablecer stock mínimo
     setNotas("");
     setCodigo("");
   };
 
   // ===============================
-  // GUARDAR
+  // FUNCIÓN DE GUARDADO
   // ===============================
   const handleSave = async () => {
+    // Validaciones de campos obligatorios
     if (!nombre.trim()) {
       Alert.alert("Error", "Debe ingresar un nombre.");
       return;
@@ -110,12 +150,16 @@ export default function AddEditItemModal({
       return;
     }
 
+    // Validación opcional para stock mínimo
+    if (minimo && Number(minimo) < 0) {
+      Alert.alert("Error", "El stock mínimo debe ser 0 o mayor.");
+      return;
+    }
+
     setSaving(true);
 
     try {
-      // ===============================
-      // OBTENER EXISTENTES
-      // ===============================
+      // Obtener todos los ítems existentes para validaciones
       const snap = await getDocs(collection(db, "inventario_general"));
       const existingItems = snap.docs.map((d) => ({
         id: d.id,
@@ -125,10 +169,11 @@ export default function AddEditItemModal({
       let codigoFinal = codigo;
 
       /* =========================================================
-       * REGLA ESPECIAL PARA CABLEADO
+       * LÓGICA ESPECIAL PARA CATEGORÍA "CABLEADO"
+       * Los cables con el mismo nombre comparten código
        * ========================================================= */
       if (categoria === "Cableado") {
-        // Si no hay código, intentar reutilizar uno existente
+        // Si no hay código, intentar reutilizar uno existente del mismo cable
         if (!codigoFinal) {
           const match = existingItems.find(
             (i) =>
@@ -141,7 +186,7 @@ export default function AddEditItemModal({
           }
         }
 
-        // Si sigue vacío, generar uno nuevo (solo la primera vez)
+        // Si sigue vacío, generar un código nuevo (solo la primera vez para este cable)
         if (!codigoFinal) {
           codigoFinal = generateMaterialCode(
             nombre,
@@ -151,9 +196,11 @@ export default function AddEditItemModal({
         }
       } else {
         /* =========================================================
-         * COMPORTAMIENTO NORMAL (NO CABLEADO)
+         * COMPORTAMIENTO NORMAL PARA OTRAS CATEGORÍAS
+         * Código único por ítem
          * ========================================================= */
         if (!isEditing) {
+          // Nuevo ítem: generar código
           codigoFinal = generateMaterialCode(
             nombre,
             categoria,
@@ -165,6 +212,7 @@ export default function AddEditItemModal({
           isEditing &&
           (item.nombre !== nombre || item.categoria !== categoria)
         ) {
+          // Si se cambia nombre o categoría al editar, regenerar código
           codigoFinal = generateMaterialCode(
             nombre,
             categoria,
@@ -172,7 +220,7 @@ export default function AddEditItemModal({
           );
         }
 
-        // Validar duplicado SOLO para no-cableado
+        // Validar duplicado de código SOLO para categorías no-cableado
         const duplicate = existingItems.find(
           (i) => i.codigo === codigoFinal && i.id !== item?.id
         );
@@ -188,7 +236,7 @@ export default function AddEditItemModal({
       }
 
       // ===============================
-      // CREAR
+      // CREAR NUEVO ÍTEM
       // ===============================
       if (!isEditing) {
         await inventoryService.agregarItemGeneralConHistorial({
@@ -197,13 +245,13 @@ export default function AddEditItemModal({
           tipo_medida: unidad,
           precio: Number(precio),
           cantidad: Number(cantidad),
+          minimo: minimo ? Number(minimo) : null, // Incluir stock mínimo
           codigo: codigoFinal,
           notas: notas || "",
         });
       }
-
       // ===============================
-      // EDITAR
+      // EDITAR ÍTEM EXISTENTE
       // ===============================
       else {
         await inventoryService.actualizarItemInventarioGeneral(item.id, {
@@ -212,10 +260,12 @@ export default function AddEditItemModal({
           tipo_medida: unidad,
           precio: Number(precio),
           cantidad: Number(cantidad),
+          minimo: minimo ? Number(minimo) : null, // Incluir stock mínimo
           codigo: codigoFinal,
           notas: notas || "",
         });
 
+        // Registrar movimiento de edición en el historial
         await inventoryService.registrarMovimiento({
           tipo: "edicion",
           material: nombre.trim(),
@@ -227,6 +277,7 @@ export default function AddEditItemModal({
         });
       }
 
+      // Notificar éxito y cerrar
       onSaved?.();
       onClose();
       resetFields();
@@ -239,7 +290,7 @@ export default function AddEditItemModal({
   };
 
   // ===============================
-  // UI
+  // INTERFAZ DE USUARIO
   // ===============================
   return (
     <ModalBase
@@ -267,6 +318,7 @@ export default function AddEditItemModal({
         </TouchableOpacity>
       }
     >
+      {/* Campo: Nombre del material */}
       <TextInput
         style={styles.input}
         placeholder="Nombre del material"
@@ -275,6 +327,7 @@ export default function AddEditItemModal({
         onChangeText={setNombre}
       />
 
+      {/* Campo: Categoría (dropdown) */}
       <DropdownSelect
         data={[
           { label: "Accesorios", value: "Accesorios" },
@@ -291,6 +344,7 @@ export default function AddEditItemModal({
         onChange={setCategoria}
       />
 
+      {/* Campo: Unidad de medida (dropdown) */}
       <DropdownSelect
         data={[
           { label: "Unidad", value: "Unidad" },
@@ -300,6 +354,7 @@ export default function AddEditItemModal({
         onChange={setUnidad}
       />
 
+      {/* Campo: Precio unitario */}
       <TextInput
         style={styles.input}
         placeholder="Precio unitario"
@@ -309,6 +364,7 @@ export default function AddEditItemModal({
         onChangeText={setPrecio}
       />
 
+      {/* Campo: Cantidad actual en inventario */}
       <TextInput
         style={styles.input}
         placeholder="Cantidad en inventario"
@@ -318,16 +374,27 @@ export default function AddEditItemModal({
         onChangeText={setCantidad}
       />
 
+      {/* Campo: Stock mínimo para alertas (NUEVO) */}
+      <TextInput
+        style={styles.input}
+        placeholder="Stock mínimo (opcional)"
+        placeholderTextColor="#777"
+        keyboardType="numeric"
+        value={minimo}
+        onChangeText={setMinimo}
+      />
+
+      {/* Mostrar código generado (si existe) */}
       {codigo ? (
-  <>
-    <Text style={styles.codeLabel}>Código:</Text>
-    <View style={styles.codeBox}>
-      <Text style={styles.codeText}>{codigo}</Text>
-    </View>
-  </>
-) : null}
+        <>
+          <Text style={styles.codeLabel}>Código:</Text>
+          <View style={styles.codeBox}>
+            <Text style={styles.codeText}>{codigo}</Text>
+          </View>
+        </>
+      ) : null}
 
-
+      {/* Campo: Notas adicionales */}
       <TextInput
         style={[styles.input, { height: 70 }]}
         placeholder="Notas (opcional)"
@@ -340,6 +407,9 @@ export default function AddEditItemModal({
   );
 }
 
+// ===============================
+// ESTILOS
+// ===============================
 const styles = StyleSheet.create({
   input: {
     backgroundColor: "#1E1E2F",

@@ -12,6 +12,53 @@ import {
 } from 'react-native';
 import DropdownSelect from '../DropdownSelect';
 
+/**
+ * Modal para mover items del inventario entre ubicaciones (proyectos o inventario general).
+ * Permite transferir cantidades específicas de materiales/equipos con validaciones
+ * de stock, cálculos de valor y selección de destinos.
+ * 
+ * @component
+ * @example
+ * const handleMoveItem = (moveData) => {
+ *   console.log('Moviendo item:', moveData);
+ *   // Ejecutar transferencia en backend
+ * };
+ * 
+ * return (
+ *   <MoveItemModal
+ *     visible={isModalVisible}
+ *     selectedItem={selectedInventoryItem}
+ *     projects={projectsList}
+ *     onMove={handleMoveItem}
+ *     onClose={() => setModalVisible(false)}
+ *     loading={isProcessing}
+ *   />
+ * );
+ * 
+ * @param {Object} props - Propiedades del componente
+ * @param {boolean} props.visible - Controla la visibilidad del modal
+ * @param {Object|null} props.selectedItem - Item del inventario seleccionado para mover
+ * @param {string} props.selectedItem.nombre - Nombre del item
+ * @param {string} [props.selectedItem.codigo] - Código/identificador del item
+ * @param {number} props.selectedItem.cantidad - Cantidad disponible actualmente
+ * @param {string} [props.selectedItem.tipo_medida] - Unidad de medida (Unidad, kg, m, etc.)
+ * @param {number} [props.selectedItem.precio] - Precio unitario del item
+ * @param {string} [props.selectedItem.notas] - Notas adicionales del item
+ * @param {string} [props.selectedItem.id] - ID único del item
+ * @param {Array<Object>} [props.projects=[]] - Lista de proyectos disponibles como destino
+ * @param {string} props.projects[].id - ID del proyecto
+ * @param {string} props.projects[].title - Título del proyecto
+ * @param {string} [props.projects[].description] - Descripción del proyecto
+ * @param {number} [props.projects[].progress] - Progreso del proyecto (0-1)
+ * @param {function} props.onMove - Callback al confirmar el movimiento
+ * @param {function} props.onClose - Callback al cerrar el modal
+ * @param {boolean} [props.loading=false] - Indica si está procesando el movimiento
+ * 
+ * @returns {React.ReactElement|null} Modal de movimiento de inventario o null si no hay item
+ * 
+ * @see DropdownSelect Componente de selector desplegable para destinos
+ * @see Modal Componente de modal nativo de React Native
+ */
 export default function MoveItemModal({
   visible,
   selectedItem,
@@ -20,12 +67,19 @@ export default function MoveItemModal({
   onClose,
   loading = false
 }) {
+  // Estado del formulario de movimiento
   const [moveData, setMoveData] = useState({
     cantidad: '',
     destino: 'proyecto',
     proyectoDestino: null
   });
 
+  /**
+   * Inicializa el formulario cuando se abre el modal con un item seleccionado.
+   * 
+   * @effect
+   * @listens visible, selectedItem
+   */
   useEffect(() => {
     if (visible && selectedItem) {
       setMoveData({
@@ -36,34 +90,56 @@ export default function MoveItemModal({
     }
   }, [visible, selectedItem]);
 
+  /**
+   * Valida y procesa el movimiento del item.
+   * Realiza validaciones de cantidad, stock y destino.
+   * 
+   * @function
+   * @returns {void}
+   * 
+   * @fires onMove Con los datos validados del movimiento
+   */
   const handleMove = () => {
+    // Validación: cantidad requerida
     if (!moveData.cantidad) {
       alert('Por favor indica la cantidad a mover');
       return;
     }
 
+    // Validación: cantidad numérica válida
     const cantidadInt = parseInt(moveData.cantidad);
     if (isNaN(cantidadInt) || cantidadInt <= 0) {
       alert('La cantidad debe ser un número válido');
       return;
     }
 
+    // Validación: no superar stock disponible
     if (cantidadInt > selectedItem.cantidad) {
       alert('No puedes mover más de lo disponible');
       return;
     }
 
+    // Validación: proyecto destino requerido si destino es proyecto
     if (moveData.destino === 'proyecto' && !moveData.proyectoDestino) {
       alert('Por favor selecciona un proyecto destino');
       return;
     }
 
+    // Enviar datos validados
     onMove({
       cantidad: cantidadInt,
       proyectoDestino: moveData.proyectoDestino
     });
   };
 
+  /**
+   * Cierra el modal y limpia el formulario.
+   * 
+   * @function
+   * @returns {void}
+   * 
+   * @fires onClose Para notificar al componente padre
+   */
   const handleClose = () => {
     setMoveData({
       cantidad: '',
@@ -73,14 +149,26 @@ export default function MoveItemModal({
     onClose();
   };
 
-  // Filtrar proyectos activos
+  /**
+   * Filtra proyectos activos (progreso < 100%).
+   * Solo proyectos en curso pueden recibir materiales.
+   * 
+   * @constant
+   * @type {Array<Object>}
+   */
   const proyectosActivos = projects.filter(proyecto => 
     (proyecto.progress || 0) < 1
   );
 
-  // Obtener proyecto seleccionado para mostrar info
+  /**
+   * Encuentra el proyecto seleccionado para mostrar información adicional.
+   * 
+   * @constant
+   * @type {Object|undefined}
+   */
   const proyectoSeleccionado = proyectosActivos.find(p => p.id === moveData.proyectoDestino);
 
+  // Validación: no renderizar si no hay item seleccionado
   if (!selectedItem) return null;
 
   return (
@@ -92,27 +180,28 @@ export default function MoveItemModal({
     >
       <View style={styles.overlay}>
         <View style={styles.container}>
-          {/* Header */}
+          {/* Header del modal */}
           <View style={styles.header}>
             <Text style={styles.title}>Mover {selectedItem.nombre}</Text>
           </View>
 
-          {/* Content */}
+          {/* Contenido desplazable */}
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-            {/* Información del item */}
+            {/* Información detallada del item */}
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{selectedItem.nombre}</Text>
               
-              {/* Mostrar código si existe */}
+              {/* Código del item (si existe) */}
               {selectedItem.codigo && (
                 <Text style={styles.itemCode}>Código: {selectedItem.codigo}</Text>
               )}
               
+              {/* Disponibilidad actual */}
               <Text style={styles.itemDetails}>
                 Disponible: {selectedItem.cantidad} {selectedItem.tipo_medida || 'Unidad'}
               </Text>
               
-              {/* Mostrar información de precios */}
+              {/* Información de precios y valor total */}
               {selectedItem.precio > 0 && (
                 <View style={styles.priceInfo}>
                   <Text style={styles.priceText}>
@@ -124,12 +213,13 @@ export default function MoveItemModal({
                 </View>
               )}
               
+              {/* Notas adicionales */}
               {selectedItem.notas && (
                 <Text style={styles.itemNotes}>Notas: {selectedItem.notas}</Text>
               )}
             </View>
 
-            {/* Cantidad a mover */}
+            {/* Campo: Cantidad a mover */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Cantidad a mover *</Text>
               <TextInput
@@ -139,17 +229,20 @@ export default function MoveItemModal({
                 keyboardType="numeric"
                 value={moveData.cantidad}
                 onChangeText={(text) => {
+                  // Validación: solo números enteros
                   if (/^\d*$/.test(text)) {
                     setMoveData(prev => ({ ...prev, cantidad: text }));
                   }
                 }}
+                editable={!loading}
               />
+              {/* Información de stock restante y valor del movimiento */}
               {moveData.cantidad && !isNaN(parseInt(moveData.cantidad)) && (
                 <View style={styles.remainingInfo}>
                   <Text style={styles.remainingText}>
                     Quedarán: {selectedItem.cantidad - parseInt(moveData.cantidad)} {selectedItem.tipo_medida || 'Unidad'}
                   </Text>
-                  {/* Mostrar valor del movimiento */}
+                  {/* Valor monetario del movimiento */}
                   {selectedItem.precio > 0 && (
                     <Text style={styles.moveValueText}>
                       Valor del movimiento: ${(selectedItem.precio * parseInt(moveData.cantidad)).toLocaleString()}
@@ -159,7 +252,7 @@ export default function MoveItemModal({
               )}
             </View>
 
-            {/* Selector de destino */}
+            {/* Selector: Destino del movimiento */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Destino *</Text>
               <DropdownSelect
@@ -176,14 +269,16 @@ export default function MoveItemModal({
                     proyectoDestino: val === 'proyecto' ? prev.proyectoDestino : null
                   }));
                 }}
+                disabled={loading}
               />
             </View>
 
-            {/* Selector de proyecto (solo si destino es proyecto) */}
+            {/* Selector: Proyecto destino (solo si destino es proyecto) */}
             {moveData.destino === 'proyecto' && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Proyecto destino *</Text>
                 {proyectosActivos.length === 0 ? (
+                  // Estado: No hay proyectos activos disponibles
                   <View style={styles.noProjects}>
                     <Text style={styles.noProjectsText}>
                       No hay proyectos activos disponibles
@@ -192,7 +287,7 @@ export default function MoveItemModal({
                 ) : (
                   <>
                     <DropdownSelect
-                      key={`proyectos-${selectedItem.id}`}
+                      key={`proyectos-${selectedItem.id}`} // Forzar re-render al cambiar item
                       data={proyectosActivos.map((p) => ({
                         label: p.title || "Proyecto sin título",
                         value: p.id,
@@ -202,7 +297,9 @@ export default function MoveItemModal({
                       onChange={(val) => {
                         setMoveData(prev => ({ ...prev, proyectoDestino: val }));
                       }}
+                      disabled={loading}
                     />
+                    {/* Información del proyecto seleccionado */}
                     {proyectoSeleccionado && (
                       <View style={styles.selectedProjectInfo}>
                         <Text style={styles.selectedProjectText}>
@@ -220,7 +317,7 @@ export default function MoveItemModal({
               </View>
             )}
 
-            {/* Información de validación */}
+            {/* Mensaje de validación del formulario */}
             <View style={styles.validationInfo}>
               <Text style={styles.validationText}>
                 {!moveData.cantidad && '⚠️ Ingresa una cantidad'}
@@ -230,7 +327,7 @@ export default function MoveItemModal({
             </View>
           </ScrollView>
 
-          {/* Footer con botones */}
+          {/* Footer con botones de acción */}
           <View style={styles.footer}>
             <TouchableOpacity
               style={[styles.button, styles.cancelButton]}
@@ -271,11 +368,11 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   container: {
-    backgroundColor: '#2D3748',
+    backgroundColor: '#2D3748', // Gris azulado oscuro
     borderRadius: 16,
     width: '95%',
     height: '85%',
-    maxWidth: 450,
+    maxWidth: 450, // Ancho máximo para tablets
     overflow: 'hidden',
     elevation: 10,
     shadowColor: '#000',
@@ -306,7 +403,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 20,
     borderLeftWidth: 4,
-    borderLeftColor: '#3182CE',
+    borderLeftColor: '#3182CE', // Azul indicador
   },
   itemName: {
     color: '#FFF',
@@ -315,7 +412,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   itemCode: {
-    color: '#805AD5',
+    color: '#805AD5', // Púrpura para códigos
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
@@ -326,13 +423,13 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   itemDetails: {
-    color: '#81E6D9',
+    color: '#81E6D9', // Verde agua
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 4,
   },
   priceInfo: {
-    backgroundColor: 'rgba(56, 161, 105, 0.1)',
+    backgroundColor: 'rgba(56, 161, 105, 0.1)', // Verde suave
     padding: 10,
     borderRadius: 6,
     marginVertical: 6,
@@ -340,13 +437,13 @@ const styles = StyleSheet.create({
     borderLeftColor: '#38A169',
   },
   priceText: {
-    color: '#38A169',
+    color: '#38A169', // Verde
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 2,
   },
   totalValueText: {
-    color: '#2D3748',
+    color: '#2D3748', // Texto oscuro sobre fondo claro
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -379,26 +476,26 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   remainingText: {
-    color: '#38B2AC',
+    color: '#38B2AC', // Turquesa
     fontSize: 14,
     marginTop: 6,
     fontWeight: '500',
   },
   moveValueText: {
-    color: '#D69E2E',
+    color: '#D69E2E', // Amarillo mostaza
     fontSize: 14,
     fontWeight: '600',
     marginTop: 4,
   },
   noProjects: {
-    backgroundColor: 'rgba(229, 62, 62, 0.1)',
+    backgroundColor: 'rgba(229, 62, 62, 0.1)', // Rojo suave
     padding: 16,
     borderRadius: 10,
     borderWidth: 2,
     borderColor: '#E53E3E',
   },
   noProjectsText: {
-    color: '#FEB2B2',
+    color: '#FEB2B2', // Rojo claro
     fontSize: 14,
     textAlign: 'center',
     fontWeight: '500',
@@ -412,13 +509,13 @@ const styles = StyleSheet.create({
     borderColor: '#38A169',
   },
   selectedProjectText: {
-    color: '#9AE6B4',
+    color: '#9AE6B4', // Verde claro
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 4,
   },
   selectedProjectDescription: {
-    color: '#CBD5E0',
+    color: '#CBD5E0', // Gris claro
     fontSize: 13,
     fontStyle: 'italic',
   },
@@ -428,7 +525,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: 10,
     borderWidth: 2,
-    borderColor: '#FBD38D',
+    borderColor: '#FBD38D', // Amarillo/naranja
   },
   validationText: {
     color: '#FBD38D',
@@ -460,13 +557,13 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
   },
   cancelButton: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#DC2626', // Rojo
   },
   confirmButton: {
-    backgroundColor: '#16A34A',
+    backgroundColor: '#16A34A', // Verde
   },
   disabledButton: {
-    backgroundColor: '#6B7280',
+    backgroundColor: '#6B7280', // Gris
     opacity: 0.6,
   },
   buttonText: {

@@ -2,6 +2,29 @@
 import { StyleSheet, Text, TextInput, TouchableOpacity } from 'react-native';
 import ModalBase from '../ModalBase';
 
+/**
+ * Modal para editar el contenido de una nota
+ * Permite modificar el texto de una nota existente con validación de contenido
+ * 
+ * @component
+ * @param {Object} props - Propiedades del componente
+ * @param {boolean} props.visible - Controla la visibilidad del modal
+ * @param {string} props.editText - Texto actual de la nota que se está editando
+ * @param {Function} props.onTextChange - Función que se ejecuta al cambiar el texto
+ * @param {Function} props.onSave - Función que se ejecuta al guardar los cambios
+ * @param {Function} props.onClose - Función que se ejecuta al cerrar el modal
+ * @returns {JSX.Element} Modal con campo de texto para editar notas
+ * 
+ * @example
+ * // Uso básico
+ * <EditNoteModal
+ *   visible={isModalVisible}
+ *   editText={noteContent}
+ *   onTextChange={setNoteContent}
+ *   onSave={handleSaveNote}
+ *   onClose={() => setIsModalVisible(false)}
+ * />
+ */
 export default function EditNoteModal({
   visible,
   editText,
@@ -27,6 +50,7 @@ export default function EditNoteModal({
         </TouchableOpacity>
       }
     >
+      {/* Campo de texto para editar la nota */}
       <TextInput
         style={[styles.input, { height: 120 }]}
         multiline

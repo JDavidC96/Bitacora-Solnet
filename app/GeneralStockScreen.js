@@ -13,75 +13,119 @@ import {
 
 import { useRouter } from "expo-router";
 
+//Contexto de usuario y hooks de datos
 import { useUser } from "../context/UserContext";
 import { useGeneralInventory } from "../hooks/useGeneralInventory";
 import { useProjects } from "../hooks/useProjects";
 
+//Componentes de la pantalla
 import AddEditItemModal from "../components/inventory/AddEditItemModal";
 import AddItemButton from "../components/inventory/AddItemButton";
 import InventoryItem from "../components/inventory/InventoryItem";
 import MoveItemModal from "../components/inventory/MoveItemModal";
 import SearchHeader from "../components/inventory/SearchHeader";
 
+//Servicios
 import { inventoryService } from "../services/inventoryService";
 
+/**
+ * Pantalla principal de gestión del inventario general de materiales.
+ * 
+ * Esta pantalla permite:
+ * - Ver todos los materiales disponibles en el inventario general
+ * - Agregar, editar y eliminar materiales
+ * - Mover materiales del inventario general a proyectos específicos
+ * - Buscar y filtrar materiales por nombre, código, categoría, unidad, etc.
+ * - Visualizar KPIs del inventario (total items, valor total, stock bajo)
+ * - Acceder al detector de duplicados (solo administradores)
+ * 
+ * Los permisos de acceso varían según el rol del usuario.
+ * 
+ * @component
+ * @example
+ * // Navegación desde otras pantallas:
+ * // router.push('/GeneralStockScreen')
+ * 
+ * @returns {JSX.Element} Componente de la pantalla de inventario general
+ */
 export default function GeneralStockScreen() {
   const router = useRouter();
 
-  // quitamos refresh, y aseguramos que items sea siempre un array
-  const { items: rawItems, loading } = useGeneralInventory();
-  const items = rawItems || [];
+  // Hooks para obtener datos
+  const { items: rawItems, loading } = useGeneralInventory(); // Inventario general
+  const items = rawItems || []; // Asegura que items sea siempre un array
+  
+  const { projects } = useProjects(); // Lista de proyectos disponibles
+  const { role, user } = useUser(); // Información del usuario actual
 
-  const { projects } = useProjects();
-  const { role, user } = useUser();
+  // Permisos basados en el rol
+  const isAdmin = role === "Administrador" || role === "Administrativo"; // Permisos administrativos completos
+  const canEdit = role === "Administrador" || role === "Administrativo" || 
+                  role === "Almacenista" || role === "Supervisor" || role === "Ingeniero"; // Permisos de edición
 
-  const isAdmin =
-    role === "Administrador" || role === "Administrativo";
-  const canEdit =
-    role === "Administrador" ||
-    role === "Administrativo" ||
-    role === "Almacenista" ||
-    role === "Supervisor" ||
-    role === "Ingeniero";
+  // Estados para filtros
+  const [searchQuery, setSearchQuery] = useState(""); // Texto de búsqueda
+  const [filterCategoria, setFilterCategoria] = useState("Todos"); // Filtro por categoría
+  const [filterUnidad, setFilterUnidad] = useState("Todos"); // Filtro por unidad de medida
+  const [showLowStock, setShowLowStock] = useState(false); // Mostrar solo stock bajo
+  const [showWithoutCode, setShowWithoutCode] = useState(false); // Mostrar solo items sin código
 
-  // Filtros
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterCategoria, setFilterCategoria] = useState("Todos");
-  const [filterUnidad, setFilterUnidad] = useState("Todos");
-  const [showLowStock, setShowLowStock] = useState(false);
-  const [showWithoutCode, setShowWithoutCode] = useState(false);
+  // Estados para modales
+  const [addEditVisible, setAddEditVisible] = useState(false); // Modal agregar/editar
+  const [moveModalVisible, setMoveModalVisible] = useState(false); // Modal mover material
+  const [selectedItem, setSelectedItem] = useState(null); // Ítem seleccionado para mover
+  const [editingItem, setEditingItem] = useState(null); // Ítem seleccionado para editar
 
-  // Modales
-  const [addEditVisible, setAddEditVisible] = useState(false);
-  const [moveModalVisible, setMoveModalVisible] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [editingItem, setEditingItem] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false); // Estado de carga para operaciones
 
-  const [actionLoading, setActionLoading] = useState(false);
+  // --- Cálculo de KPIs (Métricas clave) ---
 
-  // KPIs
+  /**
+   * Total de ítems en el inventario
+   */
   const totalItems = items.length;
+
+  /**
+   * Valor total del inventario (cantidad × precio)
+   */
   const totalValue = items.reduce(
     (sum, i) => sum + Number(i.precio || 0) * Number(i.cantidad || 0),
     0
   );
+
+  /**
+   * Ítems con stock por debajo del mínimo establecido
+   */
   const lowStockItems = items.filter(
     (i) => i.minimo && Number(i.cantidad) < Number(i.minimo)
   );
 
-  // Abrir modal editar
+  // --- Handlers para operaciones ---
+
+  /**
+   * Abre el modal de edición para un ítem específico
+   * @param {Object} item - Ítem a editar
+   */
   const handleEditItem = (item) => {
     setEditingItem(item);
     setAddEditVisible(true);
   };
 
-  // Abrir modal mover
+  /**
+   * Abre el modal para mover un ítem a un proyecto
+   * @param {Object} item - Ítem a mover
+   */
   const handleMoveItem = (item) => {
     setSelectedItem(item);
     setMoveModalVisible(true);
   };
 
-  // Confirmar movimiento (inventario general → proyecto)
+  /**
+   * Confirma y ejecuta el movimiento de material del inventario general a un proyecto
+   * @param {Object} moveData - Datos del movimiento
+   * @param {number} moveData.cantidad - Cantidad a mover
+   * @param {string} moveData.proyectoDestino - ID del proyecto destino
+   */
   const handleMoveConfirm = async (moveData) => {
     if (!selectedItem) return;
 
@@ -94,8 +138,7 @@ export default function GeneralStockScreen() {
         cantidad: moveData.cantidad,
         proyectoDestino: moveData.proyectoDestino,
         usuario: user?.email,
-        proyectoDestinoTitle:
-          projects.find((p) => p.id === moveData.proyectoDestino)?.title,
+        proyectoDestinoTitle: projects.find((p) => p.id === moveData.proyectoDestino)?.title,
       });
 
       setMoveModalVisible(false);
@@ -109,7 +152,10 @@ export default function GeneralStockScreen() {
     }
   };
 
-  // Eliminar material del inventario general
+  /**
+   * Elimina un ítem del inventario general (con confirmación)
+   * @param {Object} item - Ítem a eliminar
+   */
   const handleDeleteItem = (item) => {
     Alert.alert(
       "Eliminar material",
@@ -132,10 +178,17 @@ export default function GeneralStockScreen() {
     );
   };
 
-  // LISTA FILTRADA
+  // --- Filtrado de la lista de ítems ---
+
+  /**
+   * Aplica todos los filtros activos a la lista de ítems
+   * Ordena por categoría → nombre → código
+   */
   const filtered = items
     .filter((item) => {
       const q = searchQuery.toLowerCase();
+      
+      // Filtro de búsqueda por nombre, código o categoría
       const matchSearch =
         item.nombre?.toLowerCase().includes(q) ||
         item.codigo?.toLowerCase().includes(q) ||
@@ -143,20 +196,25 @@ export default function GeneralStockScreen() {
 
       if (!matchSearch) return false;
 
+      // Filtro por categoría
       if (filterCategoria !== "Todos" && item.categoria !== filterCategoria)
         return false;
 
+      // Filtro por unidad de medida
       if (filterUnidad !== "Todos" && item.tipo_medida !== filterUnidad)
         return false;
 
+      // Filtro de stock bajo
       if (showLowStock && !(item.minimo && item.cantidad < item.minimo))
         return false;
 
+      // Filtro de items sin código
       if (showWithoutCode && item.codigo) return false;
 
       return true;
     })
     .sort((a, b) => {
+      // Ordenar por: categoría → nombre → código
       if (a.categoria !== b.categoria)
         return a.categoria.localeCompare(b.categoria);
       if (a.nombre !== b.nombre)
@@ -166,7 +224,7 @@ export default function GeneralStockScreen() {
 
   return (
     <View style={styles.container}>
-      {/* KPIs */}
+      {/* --- Sección de KPIs (Métricas clave) --- */}
       <View style={styles.kpiRow}>
         <View style={styles.kpiCard}>
           <Text style={styles.kpiNumber}>{totalItems}</Text>
@@ -188,7 +246,7 @@ export default function GeneralStockScreen() {
         </View>
       </View>
 
-      {/* Botón duplicados */}
+      {/* --- Botón para detectar duplicados (solo administradores) --- */}
       {isAdmin && (
         <TouchableOpacity
           style={styles.dupBtn}
@@ -198,16 +256,16 @@ export default function GeneralStockScreen() {
         </TouchableOpacity>
       )}
 
-      {/* BUSCADOR */}
+      {/* --- Barra de búsqueda --- */}
       <SearchHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         placeholder="Buscar por nombre, código o categoría..."
       />
 
-      {/* FILTROS */}
+      {/* --- Filtros principales --- */}
       <View style={styles.filters}>
-        {/* Categoría */}
+        {/* Filtro por categoría (con rotación cíclica) */}
         <TouchableOpacity
           style={styles.filterBtn}
           onPress={() => {
@@ -229,7 +287,7 @@ export default function GeneralStockScreen() {
           <Text style={styles.filterText}>Categoría: {filterCategoria}</Text>
         </TouchableOpacity>
 
-        {/* Unidad */}
+        {/* Filtro por unidad de medida (con rotación cíclica) */}
         <TouchableOpacity
           style={styles.filterBtn}
           onPress={() => {
@@ -242,9 +300,10 @@ export default function GeneralStockScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* FILTROS ADMIN */}
+      {/* --- Filtros avanzados (solo administradores) --- */}
       {isAdmin && (
         <View style={styles.adminFilters}>
+          {/* Filtro para mostrar solo stock bajo */}
           <TouchableOpacity
             style={[
               styles.switchBtn,
@@ -255,6 +314,7 @@ export default function GeneralStockScreen() {
             <Text style={styles.switchText}>Stock bajo</Text>
           </TouchableOpacity>
 
+          {/* Filtro para mostrar solo ítems sin código */}
           <TouchableOpacity
             style={[
               styles.switchBtn,
@@ -267,10 +327,10 @@ export default function GeneralStockScreen() {
         </View>
       )}
 
-      {/* AGREGAR */}
+      {/* --- Botón para agregar nuevo ítem --- */}
       {canEdit && <AddItemButton onPress={() => setAddEditVisible(true)} />}
 
-      {/* LISTA DE ITEMS */}
+      {/* --- Lista de ítems (o indicador de carga) --- */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator color="#FFF" />
@@ -291,7 +351,9 @@ export default function GeneralStockScreen() {
         />
       )}
 
-      {/* MODALES */}
+      {/* --- Modales --- */}
+
+      {/* Modal para agregar/editar ítems */}
       <AddEditItemModal
         visible={addEditVisible}
         onClose={() => {
@@ -302,6 +364,7 @@ export default function GeneralStockScreen() {
         onSaved={() => {}}
       />
 
+      {/* Modal para mover ítems a proyectos */}
       <MoveItemModal
         visible={moveModalVisible}
         selectedItem={selectedItem}
@@ -319,12 +382,13 @@ export default function GeneralStockScreen() {
   );
 }
 
+// Estilos de la pantalla (tema oscuro)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#0F172A", // Azul oscuro
     padding: 12,
-    paddingTop: 30,
+    paddingTop: 30, // Espacio para status bar
   },
   kpiRow: {
     flexDirection: "row",
@@ -332,7 +396,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   kpiCard: {
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.06)", // Fondo semitransparente
     borderRadius: 10,
     padding: 12,
     flex: 1,
@@ -348,7 +412,7 @@ const styles = StyleSheet.create({
   },
   kpiLabel: {
     fontSize: 11,
-    color: "#94A3B8",
+    color: "#94A3B8", // Gris azulado
   },
   filters: {
     flexDirection: "row",
@@ -356,13 +420,13 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   filterBtn: {
-    backgroundColor: "#1E293B",
+    backgroundColor: "#1E293B", // Fondo azul más oscuro
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 8,
   },
   filterText: {
-    color: "#E2E8F0",
+    color: "#E2E8F0", // Gris muy claro
     fontSize: 13,
   },
   adminFilters: {
@@ -380,7 +444,7 @@ const styles = StyleSheet.create({
     borderColor: "#334155",
   },
   switchActive: {
-    backgroundColor: "#0EA5E9",
+    backgroundColor: "#0EA5E9", // Azul brillante cuando activo
     borderColor: "#0EA5E9",
   },
   switchText: {
@@ -390,14 +454,14 @@ const styles = StyleSheet.create({
   },
   dupBtn: {
     alignSelf: "flex-end",
-    backgroundColor: "#0EA5E9",
+    backgroundColor: "#0EA5E9", // Azul brillante
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
     marginBottom: 6,
   },
   dupText: {
-    color: "#F9FAFB",
+    color: "#F9FAFB", // Blanco puro
     fontSize: 12,
     fontWeight: "600",
   },

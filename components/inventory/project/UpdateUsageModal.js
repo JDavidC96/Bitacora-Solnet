@@ -15,6 +15,13 @@ import ModalBase from "../../ModalBase";
 import inventoryService from "../../../services/inventoryService";
 import { matchInventoryItem } from "../../../utils/classifyMaterial"; // ⬅ PIEZA A
 
+/**
+ * Obtiene la cantidad disponible de un ítem del inventario
+ * Busca en diferentes propiedades del objeto para encontrar el valor
+ * 
+ * @param {Object} item - Objeto que representa el material
+ * @returns {number} Cantidad disponible del material
+ */
 function getCantidadDisponible(item) {
   if (!item) return 0;
   if (typeof item.cantidadActual === "number") return item.cantidadActual;
@@ -23,6 +30,13 @@ function getCantidadDisponible(item) {
   return 0;
 }
 
+/**
+ * Obtiene la cantidad original asignada a un ítem del inventario
+ * Busca en diferentes propiedades del objeto para encontrar el valor
+ * 
+ * @param {Object} item - Objeto que representa el material
+ * @returns {number} Cantidad original asignada del material
+ */
 function getCantidadOriginal(item) {
   if (!item) return 0;
   if (typeof item.cantidadOriginal === "number") return item.cantidadOriginal;
@@ -31,6 +45,40 @@ function getCantidadOriginal(item) {
   return 0;
 }
 
+/**
+ * Modal para actualizar el uso de materiales en un proyecto
+ * Permite registrar el consumo de materiales y sincronizar con el inventario general
+ * 
+ * @component
+ * @param {Object} props - Propiedades del componente
+ * @param {boolean} props.visible - Controla la visibilidad del modal
+ * @param {Function} props.onClose - Función que se ejecuta al cerrar el modal
+ * @param {Object} props.item - Objeto que representa el material a usar
+ * @param {string} props.item.id - ID del material
+ * @param {string} props.item.codigo - Código del material
+ * @param {string} props.item.nombre - Nombre del material
+ * @param {number} props.item.precio - Precio unitario del material
+ * @param {string} props.item.tipo_medida - Tipo de medida (Unidad, Kg, Litro, etc.)
+ * @param {string} props.item.categoria - Categoría del material
+ * @param {Function} props.onUpdate - Función que se ejecuta al confirmar el uso
+ * @param {boolean} props.loading - Indica si está en proceso de envío de datos
+ * @param {string} props.projectId - ID del proyecto
+ * @param {string} props.usuario - Usuario que realiza la operación
+ * @param {string} props.proyectoTitle - Título del proyecto
+ * @returns {JSX.Element|null} Modal para registrar uso de materiales o null si no hay item
+ * 
+ * @example
+ * <UpdateUsageModal
+ *   visible={isModalVisible}
+ *   onClose={() => setIsModalVisible(false)}
+ *   item={selectedItem}
+ *   onUpdate={(data) => handleUsageUpdate(data)}
+ *   loading={isLoading}
+ *   projectId="123"
+ *   usuario="admin"
+ *   proyectoTitle="Proyecto XYZ"
+ * />
+ */
 export default function UpdateUsageModal({
   visible,
   onClose,
@@ -43,6 +91,7 @@ export default function UpdateUsageModal({
 }) {
   const [cantidad, setCantidad] = useState("");
 
+  // Resetear el campo de cantidad cuando el modal se cierra
   useEffect(() => {
     if (!visible) setCantidad("");
   }, [visible]);
@@ -53,12 +102,18 @@ export default function UpdateUsageModal({
   const original = getCantidadOriginal(item);
   const usado = original - disponible;
 
-  // ======================================================
-  //   ⚡ PIEZA B – MATCH ENGINE (Inventario ↔ Presupuesto)
-  // ======================================================
+  /**
+   * Maneja la confirmación del uso del material
+   * Realiza validaciones, busca el ítem en inventario general y crea uno si no existe
+   * 
+   * @async
+   * @function handleConfirm
+   * @returns {Promise<void>}
+   */
   const handleConfirm = async () => {
     const qty = Number(cantidad);
 
+    // Validaciones básicas de cantidad
     if (!qty || qty <= 0) {
       alert("Ingrese una cantidad válida mayor a 0.");
       return;
@@ -69,16 +124,16 @@ export default function UpdateUsageModal({
     }
 
     try {
-      // 1) obtener inventario general
+      // 1) Obtener inventario general
       const inventarioGeneral = await inventoryService.getAllGeneral();
 
-      // 2) buscar item según código
+      // 2) Buscar ítem según código en el inventario general
       const { exists, item: matchedItem } = matchInventoryItem(
         item.codigo,
         inventarioGeneral
       );
 
-      // 3) si no existe → ofrecer crearlo
+      // 3) Si no existe → ofrecer crearlo automáticamente
       if (!exists) {
         await new Promise((resolve, reject) => {
           Alert.alert(
@@ -102,7 +157,7 @@ export default function UpdateUsageModal({
         });
       }
 
-      // 4) enviar matchedItem hacia el flujo de uso → gasto real
+      // 4) Crear un objeto unificado con la información combinada
       const unifiedItem = {
         ...matchedItem,
         id: item.id,
@@ -113,7 +168,7 @@ export default function UpdateUsageModal({
         nombre: matchedItem.nombre ?? item.nombre ?? "",
       };
 
-      // 5) delegamos a onUpdate (ProjectStockScreen lo enviará a inventoryService)
+      // 5) Delegar a onUpdate (ProjectStockScreen lo enviará a inventoryService)
       onUpdate &&
         onUpdate({
           cantidad: qty,

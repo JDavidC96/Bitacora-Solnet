@@ -17,28 +17,57 @@ import TransferEquipmentModal from "../components/inventory/equipment/TransferEq
 // Servicios
 import { equipmentService } from "../services/equipmentService";
 
+/**
+ * Pantalla principal de gestión de inventario de herramientas/equipos.
+ * 
+ * Esta pantalla permite:
+ * - Ver todas las herramientas disponibles en el sistema
+ * - Agregar nuevas herramientas al inventario
+ * - Asignar herramientas a personal específico
+ * - Registrar préstamos temporales de herramientas
+ * - Transferir herramientas entre personal
+ * - Registrar devoluciones de herramientas prestadas
+ * - Eliminar herramientas del inventario (solo administradores)
+ * 
+ * Los permisos de acceso varían según el rol del usuario.
+ * 
+ * @component
+ * @example
+ * // Navegación desde otras pantallas:
+ * // router.push('/EquipmentStockScreen')
+ * 
+ * @returns {JSX.Element} Componente de la pantalla de stock de equipos
+ */
 export default function EquipmentStockScreen() {
+  // Contexto de usuario
   const { role, user } = useUser();
   
-  // Estados
-  const [equipment, setEquipment] = useState([]);
-  const [personnel, setPersonnel] = useState([]);
-  const [selectedEquipment, setSelectedEquipment] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // Estados para datos
+  const [equipment, setEquipment] = useState([]); // Lista de herramientas/equipos
+  const [personnel, setPersonnel] = useState([]); // Lista de personal disponible
+  const [selectedEquipment, setSelectedEquipment] = useState(null); // Herramienta seleccionada para acciones
+  const [loading, setLoading] = useState(false); // Estado de carga para operaciones
 
-  // Modales
-  const [addModalVisible, setAddModalVisible] = useState(false);
-  const [assignModalVisible, setAssignModalVisible] = useState(false);
-  const [loanModalVisible, setLoanModalVisible] = useState(false);
-  const [transferModalVisible, setTransferModalVisible] = useState(false);
+  // Estados para controlar visibilidad de modales
+  const [addModalVisible, setAddModalVisible] = useState(false); // Modal agregar herramienta
+  const [assignModalVisible, setAssignModalVisible] = useState(false); // Modal asignar herramienta
+  const [loanModalVisible, setLoanModalVisible] = useState(false); // Modal préstamo herramienta
+  const [transferModalVisible, setTransferModalVisible] = useState(false); // Modal transferir herramienta
 
-  // Permisos
-  const isAdmin = role === "Administrador";
-  const canEdit = ["Administrador", "Almacenista", "Supervisor", "Tecnico", "Ingeniero"].includes(role);
-  const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role);
+  // Definición de permisos basados en el rol del usuario
+  const isAdmin = role === "Administrador"; // Solo administrador puede eliminar
+  const canEdit = ["Administrador", "Almacenista", "Supervisor", "Tecnico", "Ingeniero"].includes(role); // Puede editar/agregar
+  const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role); // Puede asignar/transferir
 
-  // Cargar datos
+  /**
+   * Suscripciones en tiempo real a las colecciones de Firestore
+   * - 'herramientas': obtiene el inventario de equipos
+   * - 'personal': obtiene la lista de personal disponible
+   * 
+   * Utiliza Map para asegurar unicidad de documentos (evita duplicados)
+   */
   useEffect(() => {
+    // Suscripción a herramientas
     const unsubEquipment = onSnapshot(collection(db, "herramientas"), (snapshot) => {
       const unique = Array.from(
         new Map(snapshot.docs.map((d) => [d.id, { id: d.id, ...d.data() }])).values()
@@ -46,6 +75,7 @@ export default function EquipmentStockScreen() {
       setEquipment(unique);
     });
 
+    // Suscripción a personal
     const unsubPersonnel = onSnapshot(collection(db, "personal"), (snapshot) => {
       const unique = Array.from(
         new Map(snapshot.docs.map((d) => [d.id, { id: d.id, ...d.data() }])).values()
@@ -53,13 +83,19 @@ export default function EquipmentStockScreen() {
       setPersonnel(unique);
     });
 
+    // Limpieza de suscripciones al desmontar el componente
     return () => {
       unsubEquipment();
       unsubPersonnel();
     };
   }, []);
 
-  // Handlers
+  // --- Handlers para operaciones con herramientas ---
+
+  /**
+   * Agrega una nueva herramienta al inventario
+   * @param {Object} equipmentData - Datos de la herramienta a agregar
+   */
   const handleAddEquipment = async (equipmentData) => {
     setLoading(true);
     try {
@@ -74,6 +110,11 @@ export default function EquipmentStockScreen() {
     }
   };
 
+  /**
+   * Asigna una herramienta a un miembro del personal de forma permanente
+   * @param {Object} equipment - Herramienta a asignar
+   * @param {Object} person - Personal al que se asigna la herramienta
+   */
   const handleAssignEquipment = async (equipment, person) => {
     setLoading(true);
     try {
@@ -88,6 +129,11 @@ export default function EquipmentStockScreen() {
     }
   };
 
+  /**
+   * Registra un préstamo temporal de una herramienta
+   * @param {Object} equipment - Herramienta a prestar
+   * @param {Object} person - Personal que recibe el préstamo
+   */
   const handleLoanEquipment = async (equipment, person) => {
     setLoading(true);
     try {
@@ -102,6 +148,10 @@ export default function EquipmentStockScreen() {
     }
   };
 
+  /**
+   * Transfiere una herramienta de un dueño actual a uno nuevo
+   * @param {Object} newOwner - Nuevo dueño de la herramienta
+   */
   const handleTransferEquipment = async (newOwner) => {
     setLoading(true);
     try {
@@ -117,8 +167,12 @@ export default function EquipmentStockScreen() {
     }
   };
 
+  /**
+   * Registra la devolución de una herramienta prestada
+   * @param {Object} item - Herramienta a devolver
+   */
   const handleReturnEquipment = async (item) => {
-    if (!item?.prestadaA) return;
+    if (!item?.prestadaA) return; // Verifica que esté prestada
     
     try {
       await equipmentService.returnEquipment(item.id, user);
@@ -129,6 +183,10 @@ export default function EquipmentStockScreen() {
     }
   };
 
+  /**
+   * Elimina una herramienta del inventario (solo administradores)
+   * @param {Object} item - Herramienta a eliminar
+   */
   const handleDeleteEquipment = async (item) => {
     Alert.alert("Eliminar", "¿Seguro deseas eliminar esta herramienta?", [
       { text: "Cancelar", style: "cancel" },
@@ -149,13 +207,16 @@ export default function EquipmentStockScreen() {
   };
 
   return (
+    // Fondo con gradiente de azules/verdes oscuros
     <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.container}>
       
+      {/* Encabezado con botones de acciones principales */}
       <EquipmentHeader
         onAddPress={() => setAddModalVisible(true)}
         onAssignPress={() => setAssignModalVisible(true)}
       />
 
+      {/* Lista principal de herramientas */}
       <EquipmentList
         equipment={equipment}
         onLoan={(item) => {
@@ -173,7 +234,9 @@ export default function EquipmentStockScreen() {
         emptyMessage="No hay herramientas registradas"
       />
 
-      {/* Modales */}
+      {/* --- Modales para diferentes operaciones --- */}
+
+      {/* Modal para agregar nueva herramienta */}
       <AddEquipmentModal
         visible={addModalVisible}
         onSave={handleAddEquipment}
@@ -181,6 +244,7 @@ export default function EquipmentStockScreen() {
         loading={loading}
       />
 
+      {/* Modal para asignar herramienta a personal */}
       <AssignEquipmentModal
         visible={assignModalVisible}
         equipment={equipment}
@@ -190,6 +254,7 @@ export default function EquipmentStockScreen() {
         loading={loading}
       />
 
+      {/* Modal para registrar préstamo temporal */}
       <LoanEquipmentModal
         visible={loanModalVisible}
         equipment={equipment}
@@ -199,6 +264,7 @@ export default function EquipmentStockScreen() {
         loading={loading}
       />
 
+      {/* Modal para transferir herramienta entre personal */}
       <TransferEquipmentModal
         visible={transferModalVisible}
         personnel={personnel}
@@ -213,6 +279,7 @@ export default function EquipmentStockScreen() {
   );
 }
 
+// Estilos de la pantalla
 const styles = StyleSheet.create({
   container: {
     flex: 1,

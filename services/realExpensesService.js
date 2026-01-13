@@ -404,8 +404,14 @@ export const realExpensesService = {
     const realesPorFase = { fase1: 0, fase2: 0, fase3: 0, fase4: 0 };
 
     materiales.forEach((m) => {
-      realesPorFase[m.fase] += Number(m.total || 0);
-    });
+  const precio =
+    Number(m.total) ||
+    Number(m.precioTotal) ||
+    Number(m.precioUnitario) * Number(m.cantidad || m.cantidadOriginal || 0) ||
+    0;
+
+  realesPorFase[m.fase] += precio;
+});
 
     viaticos.forEach((v) => {
       realesPorFase.fase3 += Number(v.valor || 0);
