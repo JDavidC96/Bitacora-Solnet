@@ -1,4 +1,4 @@
-// utils/calculateWorkHours.js
+/// utils/calculateWorkHours.js
 import { HOLIDAYS_CO, toYMD } from "../helper";
 
 /**
@@ -9,6 +9,11 @@ import { HOLIDAYS_CO, toYMD } from "../helper";
  * - Jornada normal: Lunes a Viernes, 08:00–17:00 (diurna).
  * - Nocturno: 19:00–06:00 (aplica todos los días).
  * - Dominical/Festivo: Domingo o fecha listada en HOLIDAYS_CO.
+ *
+ * Ajustes agregados:
+ * - Tolerancia entrada (día hábil NO festivo): 07:30:00–08:15:59 => 08:00:00
+ * - Tolerancia salida (día hábil NO festivo): 16:45:00–16:59:59 => 17:00:00
+ * - Almuerzo (regla B, día hábil NO festivo): si la jornada cruza 12:00–14:00, resta 1h
  *
  * Retorna:
  * {
@@ -25,14 +30,33 @@ import { HOLIDAYS_CO, toYMD } from "../helper";
 export function calculateWorkHours(startISO, endISO) {
   if (!startISO || !endISO) return emptyResult();
 
-  const start = new Date(startISO);
-  const end = new Date(endISO);
+  let start = new Date(startISO);
+  let end = new Date(endISO);
 
   if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) {
     return emptyResult();
   }
 
-  // Solo horas COMPLETAS
+  // ==============================
+  // 1) NORMALIZACIÓN CON TOLERANCIAS
+  // ==============================
+
+  // Aplica tolerancia de ENTRADA si el inicio cae en día hábil NO festivo
+  if (isWeekdayNonHoliday(start)) {
+    start = applyStartTolerance(start);
+  }
+
+  // Aplica tolerancia de SALIDA si el fin cae en día hábil NO festivo
+  if (isWeekdayNonHoliday(end)) {
+    end = applyEndTolerance(end);
+  }
+
+  if (end <= start) return emptyResult();
+
+  // ==============================
+  // 2) CÁLCULO POR HORAS COMPLETAS
+  // ==============================
+
   const diffMs = end.getTime() - start.getTime();
   const totalFullHours = Math.floor(diffMs / (60 * 60 * 1000));
   if (totalFullHours <= 0) return emptyResult();
@@ -51,22 +75,19 @@ export function calculateWorkHours(startISO, endISO) {
 
     const isNocturnal = hour >= 19 || hour < 6;
 
-    // Jornada "normal" según tu regla histórica:
+    // Jornada "normal":
     // Lun–Vie 08:00–17:00 (y además NO dominical/festivo)
     const isWeekday = day >= 1 && day <= 5;
-    const isNormalSchedule = !isDominicalFestivo && isWeekday && hour >= 8 && hour < 17;
+    const isNormalSchedule =
+      !isDominicalFestivo && isWeekday && hour >= 8 && hour < 17;
 
     if (isDominicalFestivo) {
       // En dominical/festivo, TODA hora es "dominical".
-      // Si luego quieres separar "dominical normal" vs "dominical extra",
-      // aquí lo partimos con la misma lógica de jornada normal.
       if (isNormalSchedule) {
-        // Practicamente no ocurrirá porque isNormalSchedule incluye !isDominicalFestivo
-        // pero lo dejamos por consistencia.
+        // No debería pasar por la condición !isDominicalFestivo, pero se deja por consistencia.
         if (isNocturnal) res.dominicalNocturnalHours += 1;
         else res.dominicalHours += 1;
       } else {
-        // La mayoría caerá aquí
         if (isNocturnal) res.dominicalExtraNocturnalHours += 1;
         else res.dominicalExtraHours += 1;
       }
@@ -79,6 +100,18 @@ export function calculateWorkHours(startISO, endISO) {
     }
 
     current.setHours(current.getHours() + 1);
+  }
+
+  // ==============================
+  // 3) ALMUERZO (Regla B)
+  // ==============================
+  // Se resta 1 hora SOLO si:
+  // - el día del inicio es hábil NO festivo (criterio operativo típico),
+  // - y la jornada cruza la ventana 12:00–14:00,
+  // - y hay al menos 1 hora normal para descontar.
+  // (La resta se hace sobre normalHours y por ende afecta el total posterior.)
+  if (isWeekdayNonHoliday(start) && crossesLunchWindow(start, end)) {
+    if (res.normalHours > 0) res.normalHours = Math.max(0, res.normalHours - 1);
   }
 
   return res;
@@ -95,4 +128,70 @@ function emptyResult() {
     dominicalExtraHours: 0,
     dominicalExtraNocturnalHours: 0,
   };
+}
+
+/**
+ * Día hábil = Lun–Vie y NO festivo (según HOLIDAYS_CO y fecha local toYMD).
+ */
+function isWeekdayNonHoliday(dateObj) {
+  const day = dateObj.getDay(); // 0=Dom, 6=Sáb
+  if (day < 1 || day > 5) return false;
+
+  const ymdLocal = toYMD(dateObj);
+  const isHoliday = HOLIDAYS_CO.includes(ymdLocal);
+  return !isHoliday;
+}
+
+/**
+ * Tolerancia entrada: 07:30:00–08:15:59 => 08:00:00
+ */
+function applyStartTolerance(d) {
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const s = d.getSeconds();
+
+  // Entre 07:30:00 y 07:59:59
+  const inEarlyWindow = h === 7 && m >= 30;
+  // Entre 08:00:00 y 08:15:59
+  const inLateWindow = h === 8 && m <= 15;
+
+  if (inEarlyWindow || inLateWindow) {
+    const nd = new Date(d);
+    nd.setHours(8, 0, 0, 0);
+    return nd;
+  }
+
+  // Si es exactamente 08:15:59 o cualquier caso ya cubierto por h===8 && m<=15,
+  // no hace falta condicional extra.
+  return d;
+}
+
+/**
+ * Tolerancia salida: 16:45:00–16:59:59 => 17:00:00
+ */
+function applyEndTolerance(d) {
+  const h = d.getHours();
+  const m = d.getMinutes();
+
+  if (h === 16 && m >= 45) {
+    const nd = new Date(d);
+    nd.setHours(17, 0, 0, 0);
+    return nd;
+  }
+
+  return d;
+}
+
+/**
+ * Ventana de almuerzo: 12:00–14:00
+ * Retorna true si [start, end) se cruza con esa ventana (mismo día).
+ */
+function crossesLunchWindow(start, end) {
+  const ls = new Date(start);
+  ls.setHours(12, 0, 0, 0);
+
+  const le = new Date(start);
+  le.setHours(14, 0, 0, 0);
+
+  return end > ls && start < le;
 }
