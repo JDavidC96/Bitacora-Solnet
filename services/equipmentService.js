@@ -10,29 +10,31 @@ import {
 import { db } from '../firebase/firebaseConfig';
 
 export const equipmentService = {
-  /**
-   * Agregar nueva herramienta
-   */
   addEquipment: async (equipmentData, user) => {
-    const { nombre, estado, serial } = equipmentData;
-    
+    const { nombre, estado, serial, marca, precio } = equipmentData;
+
     if (!nombre?.trim()) {
       throw new Error('El nombre de la herramienta es requerido');
     }
+
+    const precioFinal = Number.isFinite(Number(precio)) ? Number(precio) : (precio == null ? null : null);
 
     try {
       await addDoc(collection(db, "herramientas"), {
         nombre: nombre.trim(),
         estado: estado || "Nueva",
         serial: serial?.trim() || null,
+
+        // nuevos campos (opcionales)
+        marca: marca?.trim() || null,
+        precio: precioFinal,
+
         asignada: null,
         prestadaA: null,
         createdAt: new Date().toISOString(),
       });
 
-      // Registrar en historial
       await equipmentService.addToHistory(`Se agregó la herramienta`, nombre.trim(), user);
-      
       return { success: true };
     } catch (error) {
       console.error('Error agregando herramienta:', error);
@@ -40,31 +42,62 @@ export const equipmentService = {
     }
   },
 
-  /**
-   * Asignar herramienta a persona
-   */
+  // NUEVO: editar herramienta
+  editEquipment: async (equipmentId, updates, user) => {
+    try {
+      const ref = doc(db, "herramientas", equipmentId);
+
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        throw new Error('La herramienta ya no existe');
+      }
+
+      const actual = { id: snap.id, ...snap.data() };
+
+      const payload = {
+        nombre: updates?.nombre?.trim() || actual.nombre,
+        estado: updates?.estado || actual.estado || "Nueva",
+        serial: updates?.serial?.trim() || null,
+        marca: updates?.marca?.trim() || null,
+        precio: updates?.precio == null ? null : (Number.isFinite(Number(updates.precio)) ? Number(updates.precio) : null),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await updateDoc(ref, payload);
+
+      await equipmentService.addToHistory(
+        `Se editó la herramienta`,
+        payload.nombre,
+        user
+      );
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error editando herramienta:', error);
+      throw new Error('No se pudo editar la herramienta');
+    }
+  },
+
   assignEquipment: async (equipmentId, person, user) => {
     try {
       const ref = doc(db, "herramientas", equipmentId);
-      
-      // Verificar que la herramienta existe
+
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         throw new Error('La herramienta ya no existe');
       }
 
       const herramienta = { id: snap.id, ...snap.data() };
-      
+
       await updateDoc(ref, {
-        asignada: { 
-          idPersona: person.id, 
-          nombre: person.nombre 
+        asignada: {
+          idPersona: person.id,
+          nombre: person.nombre
         },
         prestadaA: null,
         updatedAt: new Date().toISOString(),
       });
 
-      // Registrar en historial
       await equipmentService.addToHistory(
         `${herramienta.nombre} asignado a: ${person.nombre}`,
         herramienta.nombre,
@@ -78,30 +111,25 @@ export const equipmentService = {
     }
   },
 
-  /**
-   * Prestar herramienta
-   */
   loanEquipment: async (equipmentId, person, user) => {
     try {
       const ref = doc(db, "herramientas", equipmentId);
-      
-      // Verificar que la herramienta existe
+
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         throw new Error('La herramienta ya no existe');
       }
 
       const herramienta = { id: snap.id, ...snap.data() };
-      
+
       await updateDoc(ref, {
-        prestadaA: { 
-          idPersona: person.id, 
-          nombre: person.nombre 
+        prestadaA: {
+          idPersona: person.id,
+          nombre: person.nombre
         },
         updatedAt: new Date().toISOString(),
       });
 
-      // Registrar en historial
       let accion = '';
       if (herramienta.asignada) {
         accion = `${herramienta.nombre} asignado a: ${herramienta.asignada.nombre} fue prestado a: ${person.nombre}`;
@@ -118,14 +146,10 @@ export const equipmentService = {
     }
   },
 
-  /**
-   * Transferir herramienta a nueva persona
-   */
   transferEquipment: async (equipmentId, newOwner, user) => {
     try {
       const ref = doc(db, "herramientas", equipmentId);
-      
-      // Verificar que la herramienta existe
+
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         throw new Error('La herramienta ya no existe');
@@ -133,17 +157,16 @@ export const equipmentService = {
 
       const herramienta = { id: snap.id, ...snap.data() };
       const anterior = herramienta.asignada?.nombre || "Nadie";
-      
+
       await updateDoc(ref, {
-        asignada: { 
-          idPersona: newOwner.id, 
-          nombre: newOwner.nombre 
+        asignada: {
+          idPersona: newOwner.id,
+          nombre: newOwner.nombre
         },
         prestadaA: null,
         updatedAt: new Date().toISOString(),
       });
 
-      // Registrar en historial
       await equipmentService.addToHistory(
         `${herramienta.nombre} transferido de: ${anterior} a: ${newOwner.nombre}`,
         herramienta.nombre,
@@ -157,33 +180,28 @@ export const equipmentService = {
     }
   },
 
-  /**
-   * Devolver herramienta prestada
-   */
   returnEquipment: async (equipmentId, user) => {
     try {
       const ref = doc(db, "herramientas", equipmentId);
-      
-      // Verificar que la herramienta existe
+
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         throw new Error('La herramienta ya no existe');
       }
 
       const herramienta = { id: snap.id, ...snap.data() };
-      
+
       if (!herramienta.prestadaA) {
         throw new Error('La herramienta no está prestada');
       }
 
       const persona = herramienta.prestadaA;
-      
-      await updateDoc(ref, { 
+
+      await updateDoc(ref, {
         prestadaA: null,
         updatedAt: new Date().toISOString(),
       });
 
-      // Registrar en historial
       await equipmentService.addToHistory(
         `${herramienta.nombre} devuelto por: ${persona.nombre}`,
         herramienta.nombre,
@@ -197,24 +215,19 @@ export const equipmentService = {
     }
   },
 
-  /**
-   * Eliminar herramienta
-   */
   deleteEquipment: async (equipmentId, user) => {
     try {
       const ref = doc(db, "herramientas", equipmentId);
-      
-      // Verificar que la herramienta existe
+
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         throw new Error('La herramienta ya no existe');
       }
 
       const herramienta = { id: snap.id, ...snap.data() };
-      
+
       await deleteDoc(ref);
 
-      // Registrar en historial
       await equipmentService.addToHistory(
         `Se eliminó la herramienta`,
         herramienta.nombre,
@@ -228,9 +241,6 @@ export const equipmentService = {
     }
   },
 
-  /**
-   * Agregar registro al historial
-   */
   addToHistory: async (accion, herramientaNombre, user) => {
     try {
       await addDoc(collection(db, "historial_herramientas"), {
@@ -242,7 +252,6 @@ export const equipmentService = {
       });
     } catch (error) {
       console.error("Error guardando historial:", error);
-      // No lanzamos error aquí para no afectar la operación principal
     }
   }
 };

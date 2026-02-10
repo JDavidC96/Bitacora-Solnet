@@ -274,8 +274,8 @@ export default function NoVinculantesScreen() {
     const potenciaPico = numPaneles * panelKw;
 
     // inversor / micro
-    const invKw = toNum(inversorKw);
-    const micKw = toNum(microKw);
+    const invKw = Math.max(2, toNum(inversorKw));
+    const micKw = Math.max(2, toNum(microKw));
 
     const numInversores =
       modo === "inversor" && invKw > 0
@@ -313,8 +313,13 @@ export default function NoVinculantesScreen() {
 
     const precioProyecto =
       potenciaPico > 0 && a > 0 ? a * Math.pow(potenciaPico, exponente) : 0;
+    
+    // Amortización (años)
+    const amortizacion =
+      consumoPromMes > 0
+      ? precioProyecto / (consumoPromMes * 12 * 1000)
+      : 0;
 
-    const precioKwp = potenciaPico > 0 ? precioProyecto / potenciaPico : 0;
 
     return {
       consumo,
@@ -341,7 +346,7 @@ export default function NoVinculantesScreen() {
       areaPanelesM2,
 
       precioProyecto,
-      precioKwp,
+      amortizacion,
     };
   }, [
     consumoMes,
@@ -386,7 +391,6 @@ export default function NoVinculantesScreen() {
       });
     }
 
-    rows.push({ label: "Batería 5kWh*", value: `1 UND` });
     rows.push({
       label: "Área paneles*",
       value: `${formatNumber(resultados.areaPanelesM2, 3)} m²`,
@@ -410,7 +414,10 @@ export default function NoVinculantesScreen() {
       label: "Ahorro proyectado*",
       value: `${formatNumber(resultados.ahorroPct, 2)} %`,
     });
-
+    rows.push({
+      label: "Amortización estimada*",
+      value: `${formatNumber(resultados.amortizacion, 2)} años`,
+    });
     rows.push({ label: "Sistema electrico asociado al Servicio*", value: "1 UND" });
     rows.push({ label: "Ingenieria de detalle*", value: "1 UND" });
     rows.push({ label: "Smart Meter*", value: "1 UND" });
@@ -424,11 +431,6 @@ export default function NoVinculantesScreen() {
     rows.push({
       label: "Valor del Proyecto**",
       value: formatCOP(resultados.precioProyecto, 0),
-    });
-
-    rows.push({
-      label: "Precio por kWp**",
-      value: formatCOP(resultados.precioKwp, 0),
     });
 
     return rows;
@@ -602,7 +604,10 @@ export default function NoVinculantesScreen() {
                 styles.pill,
                 modo === "micro" ? styles.pillActive : styles.pillInactive,
               ]}
-              onPress={() => setModo("micro")}
+              onPress={() => {
+                setModo("micro");
+                setMicroKw((prev) => (toNum(prev) >= 2 ? prev : "2"));
+                }}
             >
               <Text
                 style={[
@@ -621,7 +626,11 @@ export default function NoVinculantesScreen() {
                 styles.pill,
                 modo === "inversor" ? styles.pillActive : styles.pillInactive,
               ]}
-              onPress={() => setModo("inversor")}
+              onPress={() => {
+                setModo("inversor");
+                setInversorKw((prev) => (toNum(prev) >= 2 ? prev : "2"));
+              }}
+
             >
               <Text
                 style={[
@@ -724,7 +733,7 @@ export default function NoVinculantesScreen() {
             value={modo === "micro" ? `${resultados.numMicros} UND` : "—"}
           />
 
-          <OrangeRow label="Batería 5kWh*" value="1 UND" />
+          
           <OrangeRow
             label="Área paneles*"
             value={`${formatNumber(resultados.areaPanelesM2, 3)} m²`}
@@ -750,6 +759,11 @@ export default function NoVinculantesScreen() {
           />
 
           <OrangeRow
+            label="Amortización estimada*"
+            value={`${formatNumber(resultados.amortizacion, 2)} años`}
+          />
+
+          <OrangeRow
             label="Sistema electrico asociado al Servicio*"
             value="1 UND"
           />
@@ -766,13 +780,6 @@ export default function NoVinculantesScreen() {
             <Text style={styles.orangeTotalLabel}>Valor del Proyecto**</Text>
             <Text style={styles.orangeTotalValue}>
               {formatCOP(resultados.precioProyecto, 0)}
-            </Text>
-          </View>
-
-          <View style={styles.orangeFootRow}>
-            <Text style={styles.orangeFootLabel}>Precio por kWp**</Text>
-            <Text style={styles.orangeFootValue}>
-              {formatCOP(resultados.precioKwp, 0)}
             </Text>
           </View>
         </View>

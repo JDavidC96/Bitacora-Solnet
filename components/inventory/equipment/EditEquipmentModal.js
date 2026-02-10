@@ -1,14 +1,15 @@
-// components/inventory/equipment/AddEquipmentModal.js
-import { useState } from "react";
+// components/inventory/equipment/EditEquipmentModal.js
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity } from "react-native";
 import DropdownSelect from "../../DropdownSelect";
 import ModalBase from "../../ModalBase";
 
-export default function AddEquipmentModal({
+export default function EditEquipmentModal({
   visible,
+  item,
   onSave,
   onClose,
-  loading = false
+  loading = false,
 }) {
   const [form, setForm] = useState({
     nombre: "",
@@ -17,6 +18,17 @@ export default function AddEquipmentModal({
     marca: "",
     precio: "",
   });
+
+  useEffect(() => {
+    if (!visible) return;
+    setForm({
+      nombre: item?.nombre ?? "",
+      estado: item?.estado ?? "Nueva",
+      serial: item?.serial ?? "",
+      marca: item?.marca ?? "",
+      precio: item?.precio != null ? String(item.precio) : "",
+    });
+  }, [visible, item]);
 
   const handleSave = () => {
     if (!form.nombre.trim()) {
@@ -38,20 +50,13 @@ export default function AddEquipmentModal({
   };
 
   const handleClose = () => {
-    setForm({
-      nombre: "",
-      estado: "Nueva",
-      serial: "",
-      marca: "",
-      precio: "",
-    });
     onClose();
   };
 
   return (
     <ModalBase
       visible={visible}
-      title="➕ Nueva Herramienta"
+      title="✏️ Editar Herramienta"
       onClose={handleClose}
       footer={
         <TouchableOpacity
@@ -59,7 +64,7 @@ export default function AddEquipmentModal({
           onPress={handleSave}
           disabled={loading}
         >
-          {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveButtonText}>Guardar</Text>}
+          {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveButtonText}>Guardar cambios</Text>}
         </TouchableOpacity>
       }
     >
@@ -133,7 +138,7 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   saveButton: {
-    backgroundColor: "#5A67D8",
+    backgroundColor: "#2F855A",
     padding: 12,
     borderRadius: 8,
     alignItems: "center",

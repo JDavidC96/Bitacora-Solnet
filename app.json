@@ -19,15 +19,15 @@
       "sku": "bitacora-solnet-ios-2024",
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification", "fetch"],
-        "NSCameraUsageDescription": "La app utiliza la cámara para capturar fotografías de instalaciones solares, equipos y avances del proyecto que se adjuntan como evidencia técnica.",
-        "NSPhotoLibraryUsageDescription": "La app accede a la galería para permitir seleccionar imágenes de instalaciones, materiales o documentos y adjuntarlos a los proyectos.",
+        "NSCameraUsageDescription": "La app permite al usuario usar la cámara para tomar fotografías de instalaciones solares, equipos y avances del proyecto, las cuales se guardan dentro del proyecto como evidencia técnica y registros de trabajo.",
+        "NSPhotoLibraryUsageDescription": "La app permite al usuario seleccionar imágenes desde la galería del dispositivo para adjuntarlas a proyectos como evidencia de instalaciones, materiales o documentos técnicos.",
         "ITSAppUsesNonExemptEncryption": false
       },
 
       "runtimeVersion": {
         "policy": "appVersion"
       },
-      "buildNumber": "4"       
+      "buildNumber": "5"       
     },
 
     "android": {

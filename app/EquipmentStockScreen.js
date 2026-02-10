@@ -2,13 +2,14 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { collection, onSnapshot } from "firebase/firestore";
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { useUser } from "../context/UserContext";
 import { db } from "../firebase/firebaseConfig";
 
 // Componentes modulares
 import AddEquipmentModal from "../components/inventory/equipment/AddEquipmentModal";
 import AssignEquipmentModal from "../components/inventory/equipment/AssignEquipmentModal";
+import EditEquipmentModal from "../components/inventory/equipment/EditEquipmentModal";
 import EquipmentHeader from "../components/inventory/equipment/EquipmentHeader";
 import EquipmentList from "../components/inventory/equipment/EquipmentList";
 import LoanEquipmentModal from "../components/inventory/equipment/LoanEquipmentModal";
@@ -19,55 +20,42 @@ import { equipmentService } from "../services/equipmentService";
 
 /**
  * Pantalla principal de gestión de inventario de herramientas/equipos.
- * 
- * Esta pantalla permite:
- * - Ver todas las herramientas disponibles en el sistema
- * - Agregar nuevas herramientas al inventario
- * - Asignar herramientas a personal específico
- * - Registrar préstamos temporales de herramientas
- * - Transferir herramientas entre personal
- * - Registrar devoluciones de herramientas prestadas
- * - Eliminar herramientas del inventario (solo administradores)
- * 
- * Los permisos de acceso varían según el rol del usuario.
- * 
- * @component
- * @example
- * // Navegación desde otras pantallas:
- * // router.push('/EquipmentStockScreen')
- * 
- * @returns {JSX.Element} Componente de la pantalla de stock de equipos
+ *
+ * - KPIs (como GeneralStockScreen): total items, total unidades, valor total, asignadas, prestadas
+ * - Long-press para editar: SOLO Administrador e Ingeniero
  */
 export default function EquipmentStockScreen() {
   // Contexto de usuario
   const { role, user } = useUser();
-  
+
   // Estados para datos
-  const [equipment, setEquipment] = useState([]); // Lista de herramientas/equipos
-  const [personnel, setPersonnel] = useState([]); // Lista de personal disponible
-  const [selectedEquipment, setSelectedEquipment] = useState(null); // Herramienta seleccionada para acciones
-  const [loading, setLoading] = useState(false); // Estado de carga para operaciones
+  const [equipment, setEquipment] = useState([]);
+  const [personnel, setPersonnel] = useState([]);
+  const [selectedEquipment, setSelectedEquipment] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   // Estados para controlar visibilidad de modales
-  const [addModalVisible, setAddModalVisible] = useState(false); // Modal agregar herramienta
-  const [assignModalVisible, setAssignModalVisible] = useState(false); // Modal asignar herramienta
-  const [loanModalVisible, setLoanModalVisible] = useState(false); // Modal préstamo herramienta
-  const [transferModalVisible, setTransferModalVisible] = useState(false); // Modal transferir herramienta
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [assignModalVisible, setAssignModalVisible] = useState(false);
+  const [loanModalVisible, setLoanModalVisible] = useState(false);
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
 
-  // Definición de permisos basados en el rol del usuario
-  const isAdmin = role === "Administrador"; // Solo administrador puede eliminar
-  const canEdit = ["Administrador", "Almacenista", "Supervisor", "Tecnico", "Ingeniero"].includes(role); // Puede editar/agregar
+  // Modal editar (long-press)
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+
+  // Permisos
+  const isAdmin = role === "Administrador"; // Solo administrador elimina
+  const canEdit = ["Administrador", "Almacenista", "Supervisor", "Tecnico", "Ingeniero"].includes(role); // Puede agregar
   const canManage = ["Administrador", "Ingeniero", "Supervisor"].includes(role); // Puede asignar/transferir
+  const canLongPressEdit = ["Administrador", "Ingeniero"].includes(role); // SOLO estos editan con long-press
 
   /**
-   * Suscripciones en tiempo real a las colecciones de Firestore
-   * - 'herramientas': obtiene el inventario de equipos
-   * - 'personal': obtiene la lista de personal disponible
-   * 
-   * Utiliza Map para asegurar unicidad de documentos (evita duplicados)
+   * Suscripciones en tiempo real a Firestore:
+   * - herramientas
+   * - personal
    */
   useEffect(() => {
-    // Suscripción a herramientas
     const unsubEquipment = onSnapshot(collection(db, "herramientas"), (snapshot) => {
       const unique = Array.from(
         new Map(snapshot.docs.map((d) => [d.id, { id: d.id, ...d.data() }])).values()
@@ -75,7 +63,6 @@ export default function EquipmentStockScreen() {
       setEquipment(unique);
     });
 
-    // Suscripción a personal
     const unsubPersonnel = onSnapshot(collection(db, "personal"), (snapshot) => {
       const unique = Array.from(
         new Map(snapshot.docs.map((d) => [d.id, { id: d.id, ...d.data() }])).values()
@@ -83,19 +70,36 @@ export default function EquipmentStockScreen() {
       setPersonnel(unique);
     });
 
-    // Limpieza de suscripciones al desmontar el componente
     return () => {
       unsubEquipment();
       unsubPersonnel();
     };
   }, []);
 
-  // --- Handlers para operaciones con herramientas ---
+  // ---------------------------
+  // KPIs (como GeneralStockScreen)
+  // ---------------------------
 
-  /**
-   * Agrega una nueva herramienta al inventario
-   * @param {Object} equipmentData - Datos de la herramienta a agregar
-   */
+  const totalItems = equipment.length;
+
+  // Si cada documento es 1 herramienta, esto te da igual que totalItems.
+  // Si manejas "cantidad", aquí te suma todo (si no existe, asume 1).
+  const totalUnits = equipment.reduce((sum, e) => sum + Number(e.cantidad ?? 1), 0);
+
+  // Valor total (precio opcional)
+  const totalValue = equipment.reduce((sum, e) => {
+    const precio = Number(e.precio || 0);
+    const cantidad = Number(e.cantidad ?? 1);
+    return sum + precio * cantidad;
+  }, 0);
+
+  const assignedCount = equipment.filter((e) => !!e.asignadaA).length;
+  const loanedCount = equipment.filter((e) => !!e.prestadaA).length;
+
+  // ---------------------------
+  // Handlers
+  // ---------------------------
+
   const handleAddEquipment = async (equipmentData) => {
     setLoading(true);
     try {
@@ -110,15 +114,10 @@ export default function EquipmentStockScreen() {
     }
   };
 
-  /**
-   * Asigna una herramienta a un miembro del personal de forma permanente
-   * @param {Object} equipment - Herramienta a asignar
-   * @param {Object} person - Personal al que se asigna la herramienta
-   */
-  const handleAssignEquipment = async (equipment, person) => {
+  const handleAssignEquipment = async (equipmentItem, person) => {
     setLoading(true);
     try {
-      await equipmentService.assignEquipment(equipment.id, person, user);
+      await equipmentService.assignEquipment(equipmentItem.id, person, user);
       setAssignModalVisible(false);
       Alert.alert("Éxito", "Herramienta asignada correctamente");
     } catch (error) {
@@ -129,15 +128,10 @@ export default function EquipmentStockScreen() {
     }
   };
 
-  /**
-   * Registra un préstamo temporal de una herramienta
-   * @param {Object} equipment - Herramienta a prestar
-   * @param {Object} person - Personal que recibe el préstamo
-   */
-  const handleLoanEquipment = async (equipment, person) => {
+  const handleLoanEquipment = async (equipmentItem, person) => {
     setLoading(true);
     try {
-      await equipmentService.loanEquipment(equipment.id, person, user);
+      await equipmentService.loanEquipment(equipmentItem.id, person, user);
       setLoanModalVisible(false);
       Alert.alert("Éxito", "Préstamo registrado correctamente");
     } catch (error) {
@@ -148,10 +142,6 @@ export default function EquipmentStockScreen() {
     }
   };
 
-  /**
-   * Transfiere una herramienta de un dueño actual a uno nuevo
-   * @param {Object} newOwner - Nuevo dueño de la herramienta
-   */
   const handleTransferEquipment = async (newOwner) => {
     setLoading(true);
     try {
@@ -167,13 +157,9 @@ export default function EquipmentStockScreen() {
     }
   };
 
-  /**
-   * Registra la devolución de una herramienta prestada
-   * @param {Object} item - Herramienta a devolver
-   */
   const handleReturnEquipment = async (item) => {
-    if (!item?.prestadaA) return; // Verifica que esté prestada
-    
+    if (!item?.prestadaA) return;
+
     try {
       await equipmentService.returnEquipment(item.id, user);
       Alert.alert("Éxito", "Devolución registrada correctamente");
@@ -183,10 +169,6 @@ export default function EquipmentStockScreen() {
     }
   };
 
-  /**
-   * Elimina una herramienta del inventario (solo administradores)
-   * @param {Object} item - Herramienta a eliminar
-   */
   const handleDeleteEquipment = async (item) => {
     Alert.alert("Eliminar", "¿Seguro deseas eliminar esta herramienta?", [
       { text: "Cancelar", style: "cancel" },
@@ -206,17 +188,65 @@ export default function EquipmentStockScreen() {
     ]);
   };
 
-  return (
-    // Fondo con gradiente de azules/verdes oscuros
-    <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.container}>
-      
-      {/* Encabezado con botones de acciones principales */}
-      <EquipmentHeader
-        onAddPress={() => setAddModalVisible(true)}
-        onAssignPress={() => setAssignModalVisible(true)}
-      />
+  // --- Edición (long-press) ---
 
-      {/* Lista principal de herramientas */}
+  const openEditModal = (item) => {
+    if (!canLongPressEdit) return;
+    setEditingItem(item);
+    setEditModalVisible(true);
+  };
+
+  const handleEditEquipment = async (updates) => {
+    if (!editingItem?.id) return;
+
+    setLoading(true);
+    try {
+      await equipmentService.editEquipment(editingItem.id, updates, user);
+      Alert.alert("Éxito", "Herramienta actualizada correctamente");
+      setEditModalVisible(false);
+      setEditingItem(null);
+    } catch (error) {
+      console.error("Error editando herramienta:", error);
+      Alert.alert("Error", error.message || "No se pudo editar la herramienta");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <LinearGradient colors={["#0f2027", "#203a43", "#2c5364"]} style={styles.container}>
+      {/* KPIs (igual idea que GeneralStockScreen) */}
+      <View style={styles.kpiRow}>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiNumber}>{totalItems}</Text>
+          <Text style={styles.kpiLabel}>Items</Text>
+        </View>
+
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiNumber}>{totalUnits}</Text>
+          <Text style={styles.kpiLabel}>Unidades</Text>
+        </View>
+
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiNumber}>${totalValue.toLocaleString("es-CO")}</Text>
+          <Text style={styles.kpiLabel}>Valor total</Text>
+        </View>
+
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiNumber}>{assignedCount}</Text>
+          <Text style={styles.kpiLabel}>Asignadas</Text>
+        </View>
+
+        <View style={[styles.kpiCard, { borderColor: "#F87171" }]}>
+          <Text style={[styles.kpiNumber, { color: "#F87171" }]}>{loanedCount}</Text>
+          <Text style={styles.kpiLabel}>Prestadas</Text>
+        </View>
+      </View>
+
+      {/* Encabezado con acciones */}
+      <EquipmentHeader onAddPress={() => setAddModalVisible(true)} onAssignPress={() => setAssignModalVisible(true)} />
+
+      {/* Lista */}
       <EquipmentList
         equipment={equipment}
         onLoan={(item) => {
@@ -231,12 +261,12 @@ export default function EquipmentStockScreen() {
         onDelete={handleDeleteEquipment}
         canEdit={canEdit}
         isAdmin={isAdmin}
+        canLongPressEdit={canLongPressEdit}
+        onEdit={openEditModal}
         emptyMessage="No hay herramientas registradas"
       />
 
-      {/* --- Modales para diferentes operaciones --- */}
-
-      {/* Modal para agregar nueva herramienta */}
+      {/* Modales */}
       <AddEquipmentModal
         visible={addModalVisible}
         onSave={handleAddEquipment}
@@ -244,7 +274,6 @@ export default function EquipmentStockScreen() {
         loading={loading}
       />
 
-      {/* Modal para asignar herramienta a personal */}
       <AssignEquipmentModal
         visible={assignModalVisible}
         equipment={equipment}
@@ -254,7 +283,6 @@ export default function EquipmentStockScreen() {
         loading={loading}
       />
 
-      {/* Modal para registrar préstamo temporal */}
       <LoanEquipmentModal
         visible={loanModalVisible}
         equipment={equipment}
@@ -264,7 +292,6 @@ export default function EquipmentStockScreen() {
         loading={loading}
       />
 
-      {/* Modal para transferir herramienta entre personal */}
       <TransferEquipmentModal
         visible={transferModalVisible}
         personnel={personnel}
@@ -275,14 +302,52 @@ export default function EquipmentStockScreen() {
         }}
         loading={loading}
       />
+
+      <EditEquipmentModal
+        visible={editModalVisible}
+        item={editingItem}
+        onSave={handleEditEquipment}
+        onClose={() => {
+          setEditModalVisible(false);
+          setEditingItem(null);
+        }}
+        loading={loading}
+      />
     </LinearGradient>
   );
 }
 
-// Estilos de la pantalla
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+  },
+
+  // KPIs (copiado en espíritu de GeneralStockScreen)
+  kpiRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  kpiCard: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 10,
+    padding: 12,
+    flex: 1,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+  },
+  kpiNumber: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFF",
+    textAlign: "center",
+  },
+  kpiLabel: {
+    fontSize: 11,
+    color: "#94A3B8",
+    textAlign: "center",
   },
 });
