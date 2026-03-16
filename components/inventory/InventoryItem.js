@@ -9,101 +9,72 @@ import {
 
 /**
  * Componente que representa un ítem individual del inventario.
- * Muestra información clave del material y proporciona acciones interactivas.
- * 
- * Este componente se utiliza en:
- * - GeneralStockScreen: Para mostrar materiales del inventario general
- * - ProjectStockScreen: Para mostrar materiales asignados a un proyecto
- * 
- * Características:
- * - Muestra nombre, código, categoría, unidad y precio
- * - Resalta el stock disponible con color distintivo
- * - Muestra stock mínimo para alertas de inventario
- * - Indica visualmente cuando el stock está bajo el mínimo
- * - Soporta interacciones táctiles (press y long press)
- * - Incluye botón "Mover" para transferir materiales
- * - Diseño responsivo con tema oscuro
- * 
+ *
+ * Además del stock real, muestra dos badges informativos opcionales:
+ * - 🟣 "+Xres"  → cantidad reservada para proyectos (púrpura)
+ * - 🟠 "+Xcam"  → cantidad cargada en la camioneta (naranja)
+ *
+ * Acciones disponibles (visibles solo si se pasan los callbacks):
+ * - Long press → Editar
+ * - Botón "Mover"    → Mover al inventario de un proyecto (descuenta stock)
+ * - Botón "Reservar" → Reservar para un proyecto (solo informativo)
+ * - Botón "🚐"       → Gestionar carga en camioneta
+ *
  * @component
- * @param {Object} props - Propiedades del componente
- * @param {Object} props.item - Objeto del material a mostrar
- * @param {string} props.item.nombre - Nombre del material
- * @param {string} [props.item.codigo] - Código único del material
- * @param {string} [props.item.categoria] - Categoría del material
- * @param {string} props.item.tipo_medida - Unidad de medida (Unidad/Metro)
- * @param {number} props.item.precio - Precio unitario
- * @param {number} props.item.cantidad - Stock disponible actual
- * @param {number} [props.item.minimo] - Stock mínimo para alertas (opcional)
- * @param {Function} [props.onEdit] - Callback al hacer long press (editar)
- * @param {Function} [props.onMove] - Callback al presionar botón "Mover"
- * @param {Function} [props.onDelete] - Callback para eliminar (no visible en UI actual)
- * 
- * @example
- * <InventoryItem
- *   item={material}
- *   onEdit={() => handleEdit(material)}
- *   onMove={() => handleMove(material)}
- * />
- * 
- * @returns {JSX.Element} Componente de ítem de inventario
+ * @param {Object}   props
+ * @param {Object}   props.item               - Material del inventario
+ * @param {boolean}  [props.canEdit]          - Habilita acciones de edición
+ * @param {Function} [props.onEdit]           - Callback al hacer long press
+ * @param {Function} [props.onDelete]         - Callback para eliminar
+ * @param {Function} [props.onMove]           - Callback para mover a proyecto
+ * @param {Function} [props.onReserve]        - Callback para reservar
+ * @param {Function} [props.onTruck]          - Callback para gestionar camioneta
+ * @param {number}   [props.cantidadReservada=0] - Total reservado (badge púrpura)
+ * @param {number}   [props.cantidadCamioneta=0] - Total en camioneta (badge naranja)
  */
-export default function InventoryItem({ item, onEdit, onMove }) {
-  // Calcula si el stock actual está por debajo del mínimo establecido
+export default function InventoryItem({
+  item,
+  onEdit,
+  onMove,
+  onReserve,
+  onTruck,
+  cantidadReservada = 0,
+  cantidadCamioneta = 0,
+}) {
   const isLowStock = item.minimo && Number(item.cantidad) < Number(item.minimo);
-  
-  /**
-   * Maneja la interacción de presión larga (long press)
-   * Se activa después de 220ms para evitar activaciones accidentales
-   */
-  const handleLongPress = () => {
-    if (onEdit) {
-      onEdit(item);
-    }
-  };
 
-  /**
-   * Maneja el clic en el botón "Mover"
-   */
-  const handleMovePress = () => {
-    if (onMove) {
-      onMove(item);
-    }
-  };
+  const handleLongPress = () => onEdit?.(item);
+  const handleMovePress = () => onMove?.(item);
+  const handleReservePress = () => onReserve?.(item);
+  const handleTruckPress = () => onTruck?.(item);
 
   return (
     <TouchableOpacity
       style={[styles.container, isLowStock && styles.lowStockContainer]}
       onLongPress={handleLongPress}
-      delayLongPress={220} // Retardo para evitar activaciones accidentales
-      activeOpacity={0.7} // Efecto visual al tocar
+      delayLongPress={220}
+      activeOpacity={0.7}
     >
-      {/* Columna izquierda: Información detallada del material */}
+      {/* ──────────── Columna izquierda: info ──────────── */}
       <View style={{ flex: 1 }}>
-        {/* Nombre del material - Información principal */}
         <Text style={styles.name}>{item.nombre}</Text>
 
-        {/* Código único del material (si existe) */}
         <Text style={styles.code}>
-          Código: {item.codigo || "—"} {/* Guión si no hay código */}
+          Código: {item.codigo || "—"}
         </Text>
 
-        {/* Categoría y unidad de medida */}
         <Text style={styles.meta}>
           {item.categoria || "Sin categoría"} · {item.tipo_medida}
         </Text>
 
-        {/* Precio unitario formateado en pesos colombianos */}
         <Text style={styles.price}>
           $ {Number(item.precio || 0).toLocaleString("es-CO")}
         </Text>
 
-        {/* Información de stock mínimo (si está configurado) */}
-        {item.minimo !== undefined && item.minimo !== null && (
+        {/* Stock mínimo + alerta */}
+        {item.minimo != null && (
           <View style={styles.minimoContainer}>
-            <Text style={[
-              styles.minimoText,
-              isLowStock && styles.minimoAlert
-            ]}>
+            <Text style={[styles.minimoText, isLowStock && styles.minimoAlert]}>
               Mín: {item.minimo}
             </Text>
             {isLowStock && (
@@ -111,151 +82,142 @@ export default function InventoryItem({ item, onEdit, onMove }) {
             )}
           </View>
         )}
+
+        {/* ── Badges informativos ── */}
+        {(cantidadReservada > 0 || cantidadCamioneta > 0) && (
+          <View style={styles.badgesRow}>
+            {cantidadReservada > 0 && (
+              <View style={styles.badgeReserva}>
+                <Text style={styles.badgeReservaText}>
+                  +{cantidadReservada} res
+                </Text>
+              </View>
+            )}
+            {cantidadCamioneta > 0 && (
+              <View style={styles.badgeCamioneta}>
+                <Text style={styles.badgeCamiText}>
+                  +{cantidadCamioneta} 🚐
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
-      {/* Columna derecha: Stock y acciones */}
+      {/* ──────────── Columna derecha: stock + acciones ──────────── */}
       <View style={styles.qtyBox}>
-        {/* Cantidad disponible - Resaltada visualmente */}
-        <Text style={[
-          styles.qty,
-          isLowStock && styles.qtyLowStock
-        ]}>
+        {/* Número de stock */}
+        <Text style={[styles.qty, isLowStock && styles.qtyLowStock]}>
           {item.cantidad ?? 0}
         </Text>
-        
-        {/* Etiqueta "Stock" o indicador de stock bajo */}
+
+        {/* Etiqueta stock + porcentaje vs mínimo */}
         <View style={styles.stockInfo}>
-          <Text style={[
-            styles.qtyLabel,
-            isLowStock && styles.qtyLabelLowStock
-          ]}>
-            {isLowStock ? "¡Stock bajo!" : "Stock"}
+          <Text style={[styles.qtyLabel, isLowStock && styles.qtyLabelLowStock]}>
+            {isLowStock ? "¡Bajo!" : "Stock"}
           </Text>
-          
-          {/* Indicador visual de relación stock/mínimo */}
-          {item.minimo !== undefined && item.minimo !== null && (
+          {item.minimo != null && Number(item.minimo) > 0 && (
             <Text style={styles.stockRatio}>
               {Math.round((Number(item.cantidad) / Number(item.minimo)) * 100)}%
             </Text>
           )}
         </View>
 
-        {/* Botón "Mover" (solo visible si se proporciona onMove) */}
-        {onMove && (
-          <TouchableOpacity
-            style={styles.moveBtn}
-            onPress={handleMovePress}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.moveText}>Mover</Text>
-          </TouchableOpacity>
-        )}
+        {/* ── Botones de acción ── */}
+        <View style={styles.actionsCol}>
+          {onMove && (
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnMove]}
+              onPress={handleMovePress}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionText}>Mover</Text>
+            </TouchableOpacity>
+          )}
+          {onReserve && (
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.btnReserve]}
+              onPress={handleReservePress}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionText}>Reservar</Text>
+            </TouchableOpacity>
+          )}
+          {onTruck && (
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                styles.btnTruck,
+                cantidadCamioneta > 0 && styles.btnTruckActive,
+              ]}
+              onPress={handleTruckPress}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.actionText}>
+                {cantidadCamioneta > 0 ? "🚐 Cargado" : "🚐"}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </TouchableOpacity>
   );
 }
 
-/**
- * Estilos del componente InventoryItem
- * Utiliza un esquema de colores oscuro con acentos azules, amarillos y rojos para alertas
- */
 const styles = StyleSheet.create({
-  /**
-   * Contenedor principal del ítem
-   * Diseño tipo tarjeta con bordes redondeados y sombras sutiles
-   */
   container: {
-    backgroundColor: "#1E293B", // Azul oscuro - fondo de tarjeta
-    borderRadius: 10, // Bordes redondeados
-    padding: 12, // Espaciado interno
-    marginBottom: 10, // Separación entre tarjetas
-    flexDirection: "row", // Diseño horizontal
-    borderWidth: 1, // Borde sutil
-    borderColor: "#334155", // Color del borde (azul grisáceo)
+    backgroundColor: "#1E293B",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: "#334155",
   },
-
-  /**
-   * Estilo adicional para contenedor cuando el stock está bajo el mínimo
-   * Borde rojo para alerta visual inmediata
-   */
   lowStockContainer: {
-    borderColor: "#F87171", // Rojo anaranjado para alertas
-    borderWidth: 1.5, // Borde más grueso para destacar
-    backgroundColor: "rgba(248, 113, 113, 0.05)", // Fondo rojo muy suave
+    borderColor: "#F87171",
+    borderWidth: 1.5,
+    backgroundColor: "rgba(248, 113, 113, 0.05)",
   },
 
-  /**
-   * Estilo para el nombre del material
-   * Texto principal, más grande y con mayor contraste
-   */
+  // ── Columna izquierda ──
   name: {
-    color: "#F8FAFC", // Blanco azulado - alto contraste
+    color: "#F8FAFC",
     fontSize: 15,
-    fontWeight: "600", // Semi-negrita
+    fontWeight: "600",
   },
-
-  /**
-   * Estilo para el código del material
-   * Texto secundario, menos prominente
-   */
   code: {
-    color: "#94A3B8", // Gris azulado - contraste medio
-    fontSize: 12,
-    marginTop: 2, // Separación del elemento anterior
-  },
-
-  /**
-   * Estilo para información meta (categoría y unidad)
-   * Texto informativo con contraste medio-bajo
-   */
-  meta: {
-    color: "#CBD5E1", // Gris claro - buena legibilidad
+    color: "#94A3B8",
     fontSize: 12,
     marginTop: 2,
   },
-
-  /**
-   * Estilo para el precio unitario
-   * Destacado en azul brillante para llamar la atención
-   */
-  price: {
-    color: "#38BDF8", // Azul cielo - color de acento
-    fontWeight: "700", // Negrita
-    marginTop: 4, // Separación del elemento anterior
+  meta: {
+    color: "#CBD5E1",
+    fontSize: 12,
+    marginTop: 2,
   },
-
-  /**
-   * Contenedor para la información de stock mínimo
-   */
+  price: {
+    color: "#38BDF8",
+    fontWeight: "700",
+    marginTop: 4,
+  },
   minimoContainer: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 6,
-    gap: 8, // Espacio entre elementos
+    gap: 8,
   },
-
-  /**
-   * Texto del stock mínimo (normal)
-   */
   minimoText: {
-    color: "#94A3B8", // Gris azulado
+    color: "#94A3B8",
     fontSize: 11,
     fontWeight: "500",
   },
-
-  /**
-   * Texto del stock mínimo cuando hay alerta
-   */
   minimoAlert: {
-    color: "#F87171", // Rojo anaranjado
+    color: "#F87171",
     fontWeight: "600",
   },
-
-  /**
-   * Alerta visual de stock bajo
-   */
   lowStockAlert: {
-    color: "#FCA5A5", // Rojo claro
+    color: "#FCA5A5",
     fontSize: 11,
     fontWeight: "600",
     backgroundColor: "rgba(248, 113, 113, 0.1)",
@@ -264,89 +226,103 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 
-  /**
-   * Contenedor para la cantidad y acciones
-   * Alineado a la derecha con ancho mínimo
-   */
-  qtyBox: {
-    alignItems: "center", // Centrado horizontal
-    justifyContent: "center", // Centrado vertical
-    minWidth: 80, // Ancho mínimo ligeramente mayor para nueva información
+  // ── Badges informativos ──
+  badgesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 5,
+    marginTop: 8,
+  },
+  badgeReserva: {
+    backgroundColor: "rgba(124, 58, 237, 0.18)",
+    borderWidth: 1,
+    borderColor: "#7C3AED",
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  badgeReservaText: {
+    color: "#C4B5FD", // Lavanda
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  badgeCamioneta: {
+    backgroundColor: "rgba(234, 88, 12, 0.18)",
+    borderWidth: 1,
+    borderColor: "#EA580C",
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  badgeCamiText: {
+    color: "#FDBA74", // Naranja claro
+    fontSize: 11,
+    fontWeight: "700",
   },
 
-  /**
-   * Contenedor para información de stock (etiqueta + porcentaje)
-   */
+  // ── Columna derecha ──
+  qtyBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 88,
+    paddingLeft: 8,
+  },
+  qty: {
+    color: "#FBBF24",
+    fontSize: 22,
+    fontWeight: "700",
+  },
+  qtyLowStock: {
+    color: "#F87171",
+    fontSize: 24,
+  },
   stockInfo: {
     alignItems: "center",
     marginBottom: 6,
   },
-
-  /**
-   * Estilo para la cantidad de stock (normal)
-   * Número grande y llamativo en amarillo
-   */
-  qty: {
-    color: "#FBBF24", // Amarillo mostaza - destacado para números
-    fontSize: 22, // Tamaño grande para fácil lectura
-    fontWeight: "700", // Negrita
-  },
-
-  /**
-   * Estilo para la cantidad de stock cuando está bajo el mínimo
-   */
-  qtyLowStock: {
-    color: "#F87171", // Rojo anaranjado para alerta
-    fontSize: 24, // Un poco más grande para destacar
-  },
-
-  /**
-   * Etiqueta "Stock" debajo de la cantidad (normal)
-   * Texto pequeño y discreto
-   */
   qtyLabel: {
-    color: "#94A3B8", // Gris azulado - contraste bajo
+    color: "#94A3B8",
     fontSize: 11,
   },
-
-  /**
-   * Etiqueta "Stock" cuando hay stock bajo
-   */
   qtyLabelLowStock: {
-    color: "#FCA5A5", // Rojo claro
+    color: "#FCA5A5",
     fontWeight: "600",
   },
-
-  /**
-   * Porcentaje de stock respecto al mínimo
-   * Muestra relación visual rápida
-   */
   stockRatio: {
-    color: "#A5B4FC", // Azul lavanda
+    color: "#A5B4FC",
     fontSize: 10,
-    marginTop: 2,
+    marginTop: 1,
     fontWeight: "500",
   },
 
-  /**
-   * Botón "Mover" para transferir material
-   * Diseño compacto con color de acción
-   */
-  moveBtn: {
-    backgroundColor: "#0EA5E9", // Azul brillante - color de acción
-    borderRadius: 6, // Bordes ligeramente redondeados
-    paddingVertical: 4, // Espaciado vertical mínimo
-    paddingHorizontal: 10, // Espaciado horizontal
-    marginTop: 4, // Separación del elemento anterior
+  // ── Botones de acción ──
+  actionsCol: {
+    width: "100%",
+    gap: 5,
   },
-
-  /**
-   * Texto del botón "Mover"
-   * Blanco con buen contraste sobre fondo azul
-   */
-  moveText: {
-    color: "#FFF", // Blanco puro
-    fontSize: 11, // Tamaño pequeño para botón compacto
-    fontWeight: "600", // Semi-negrita
+  actionBtn: {
+    borderRadius: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    alignItems: "center",
+  },
+  btnMove: {
+    backgroundColor: "#0EA5E9", // Azul
+  },
+  btnReserve: {
+    backgroundColor: "#7C3AED", // Púrpura
+  },
+  btnTruck: {
+    backgroundColor: "#78350F", // Naranja oscuro (inactivo)
+    borderWidth: 1,
+    borderColor: "#EA580C",
+  },
+  btnTruckActive: {
+    backgroundColor: "#EA580C", // Naranja brillante (hay material cargado)
+  },
+  actionText: {
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "600",
   },
 });

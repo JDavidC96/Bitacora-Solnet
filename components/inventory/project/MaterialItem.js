@@ -95,7 +95,9 @@ export default function MaterialItem({
   item,
   onUse,
   onReturn,
+  onTruck,
   canUse = false,
+  cantidadCamioneta = 0,
 }) {
   // Calcular cantidades usando funciones helper
   const original = getCantidadOriginal(item);
@@ -151,6 +153,15 @@ export default function MaterialItem({
               : ""}
           </Text>
         )}
+
+        {/* Badge camioneta */}
+        {cantidadCamioneta > 0 && (
+          <View style={styles.camiBadge}>
+            <Text style={styles.camiBadgeText}>
+              🚐 +{cantidadCamioneta} en camioneta
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Sección de acciones (condicional) */}
@@ -184,6 +195,23 @@ export default function MaterialItem({
           >
             <Text style={styles.secondaryText}>Devolver</Text>
           </TouchableOpacity>
+
+          {/* Botón: Gestionar camioneta */}
+          {onTruck && (
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                styles.truckBtn,
+                cantidadCamioneta > 0 && styles.truckBtnActive,
+              ]}
+              onPress={onTruck}
+              accessibilityLabel={`Gestionar camioneta para ${item.nombre}`}
+            >
+              <Text style={styles.truckText}>
+                {cantidadCamioneta > 0 ? '🚐 Cargado' : '🚐'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </View>
@@ -260,7 +288,35 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   secondaryText: {
-    color: "#EFF6FF", // Azul muy claro para texto sobre fondo azul
+    color: "#EFF6FF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  truckBtn: {
+    backgroundColor: "#78350F",
+    borderWidth: 1,
+    borderColor: "#EA580C",
+  },
+  truckBtnActive: {
+    backgroundColor: "#EA580C",
+  },
+  truckText: {
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  camiBadge: {
+    marginTop: 6,
+    backgroundColor: "rgba(234, 88, 12, 0.15)",
+    borderWidth: 1,
+    borderColor: "#EA580C",
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+  },
+  camiBadgeText: {
+    color: "#FDBA74",
     fontSize: 11,
     fontWeight: "700",
   },

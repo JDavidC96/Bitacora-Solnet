@@ -69,7 +69,13 @@ import UpdateUsageModal from "../components/inventory/project/UpdateUsageModal";
 import SearchHeader from "../components/inventory/SearchHeader";
 
 // Servicio de inventario
+import { camionetaService } from "../services/camionetaService";
 import { inventoryService } from "../services/inventoryService";
+
+// Hooks y modales de camioneta<
+import TruckInventoryModal from "../components/inventory/TruckInventoryModal";
+import TruckItemModal from "../components/inventory/TruckItemModal";
+import { useCamioneta } from "../hooks/useCamioneta";
 
 /**
  * Normaliza texto para búsquedas insensibles a mayúsculas y acentos
@@ -103,6 +109,7 @@ export default function ProjectStockScreen() {
   // Obtener lista de proyectos y datos de usuario
   const { projects } = useProjects();
   const { role, user } = useUser();
+  const { camionetaPorItem, itemsCamioneta } = useCamioneta();
 
   // ==================== INVENTARIO EN TIEMPO REAL ====================
   /**
@@ -149,6 +156,11 @@ export default function ProjectStockScreen() {
    * @type {[boolean, Function]}
    */
   const [actionLoading, setActionLoading] = useState(false);
+
+  // ── Camioneta ──
+  const [truckModalVisible, setTruckModalVisible] = useState(false);
+  const [truckItem, setTruckItem] = useState(null);
+  const [truckInventoryVisible, setTruckInventoryVisible] = useState(false);
 
   // ==================== BÚSQUEDA EN INVENTARIO ====================
   /**
@@ -366,6 +378,98 @@ export default function ProjectStockScreen() {
   };
 
   // ============================================================================
+  // CAMIONETA — cargar desde proyecto
+  // ============================================================================
+  const handleTruckCargarDesdeProyecto = async ({ cantidad }) => {
+    if (!truckItem) return;
+    setActionLoading(true);
+    try {
+      await camionetaService.cargarDesdeProyecto({
+        projectId,
+        projectItemId: truckItem.id,
+        itemId: truckItem.idGeneral || truckItem.id,
+        nombre: truckItem.nombre,
+        codigo: truckItem.codigo,
+        categoria: truckItem.categoria,
+        tipo_medida: truckItem.tipo_medida,
+        precio: truckItem.precio,
+        cantidad,
+        proyectoTitle: title,
+      });
+      setTruckModalVisible(false);
+      setTruckItem(null);
+      Alert.alert("Camioneta", `${cantidad} ${truckItem.tipo_medida || "Unidad"} cargados desde el proyecto.`);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo cargar a la camioneta.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTruckDescargarGeneral = async ({ cantidad }) => {
+    if (!truckItem) return;
+    setActionLoading(true);
+    try {
+      await camionetaService.descargarAlGeneral({
+        itemId: truckItem.idGeneral || truckItem.id,
+        cantidad,
+      });
+      setTruckModalVisible(false);
+      setTruckItem(null);
+      Alert.alert("Camioneta", `${cantidad} ${truckItem.tipo_medida || "Unidad"} devueltos al inventario general.`);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo descargar.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTruckDescargarProyecto = async ({ cantidad, proyectoId: destId, proyectoTitle: destTitle }) => {
+    if (!truckItem) return;
+    setActionLoading(true);
+    try {
+      await camionetaService.descargarAlProyecto({
+        itemId: truckItem.idGeneral || truckItem.id,
+        cantidad,
+        proyectoId: destId,
+        proyectoTitle: destTitle,
+      });
+      setTruckModalVisible(false);
+      setTruckItem(null);
+      Alert.alert("Camioneta", `${cantidad} ${truckItem.tipo_medida || "Unidad"} enviados al proyecto "${destTitle}".`);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo descargar al proyecto.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ── Descargar desde modal general de camioneta ──
+  const handleTruckInvDescargarGeneral = async ({ itemId, cantidad }) => {
+    setActionLoading(true);
+    try {
+      await camionetaService.descargarAlGeneral({ itemId, cantidad });
+      Alert.alert("Camioneta", `${cantidad} unidades devueltas al inventario general.`);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo descargar.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleTruckInvDescargarProyecto = async ({ itemId, cantidad, proyectoId: destId, proyectoTitle: destTitle }) => {
+    setActionLoading(true);
+    try {
+      await camionetaService.descargarAlProyecto({ itemId, cantidad, proyectoId: destId, proyectoTitle: destTitle });
+      Alert.alert("Camioneta", `${cantidad} unidades enviadas al proyecto "${destTitle}".`);
+    } catch (error) {
+      Alert.alert("Error", error.message || "No se pudo descargar al proyecto.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ============================================================================
   // CERRAR TODOS LOS MODALES
   // ============================================================================
   /**
@@ -373,12 +477,15 @@ export default function ProjectStockScreen() {
    * Previene el cierre si hay una operación en curso
    */
   const handleCloseModals = () => {
-    if (actionLoading) return; // Evitar cierre durante operaciones
+    if (actionLoading) return;
     setAddModalVisible(false);
     setUsageModalVisible(false);
     setMoveModalVisible(false);
     setExternalModalVisible(false);
+    setTruckModalVisible(false);
+    setTruckInventoryVisible(false);
     setSelectedItem(null);
+    setTruckItem(null);
   };
 
   // ============================================================================
@@ -411,6 +518,19 @@ export default function ProjectStockScreen() {
         <AddMaterialButton onPress={() => setAddModalVisible(true)} />
       )}
 
+      {/* BOTÓN: VER TODO EL INVENTARIO DE LA CAMIONETA */}
+      {canEditUsage && (
+        <TouchableOpacity
+          style={styles.truckGlobalBtn}
+          onPress={() => setTruckInventoryVisible(true)}
+        >
+          <Text style={styles.truckGlobalText}>
+            🚐 Ver camioneta
+            {itemsCamioneta.length > 0 ? `  (${itemsCamioneta.length} tipo${itemsCamioneta.length > 1 ? 's' : ''})` : ' — vacía'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {/* LISTA DE INVENTARIO */}
       {loading ? (
         // Estado de carga
@@ -429,6 +549,7 @@ export default function ProjectStockScreen() {
             <MaterialItem
               item={item}
               canUse={canEditUsage}
+              cantidadCamioneta={camionetaPorItem[item.idGeneral || item.id] || 0}
               onUse={() => {
                 setSelectedItem(item);
                 setUsageModalVisible(true);
@@ -437,6 +558,10 @@ export default function ProjectStockScreen() {
                 setSelectedItem(item);
                 setMoveModalVisible(true);
               }}
+              onTruck={canEditUsage ? () => {
+                setTruckItem(item);
+                setTruckModalVisible(true);
+              } : undefined}
             />
           )}
         />
@@ -478,6 +603,32 @@ export default function ProjectStockScreen() {
         onTransfer={handleTransferMaterial}
         projects={projects}
         currentProjectId={projectId}
+        loading={actionLoading}
+      />
+      {/* Modal inventario completo de camioneta */}
+      <TruckInventoryModal
+        visible={truckInventoryVisible}
+        itemsCamioneta={itemsCamioneta}
+        projects={projects}
+        proyectoId={projectId}
+        proyectoTitle={title}
+        onDescargarGeneral={handleTruckInvDescargarGeneral}
+        onDescargarProyecto={handleTruckInvDescargarProyecto}
+        onClose={() => setTruckInventoryVisible(false)}
+        loading={actionLoading}
+      />
+
+      {/* Modal camioneta por ítem */}
+      <TruckItemModal
+        visible={truckModalVisible}
+        selectedItem={truckItem}
+        cantidadEnCamioneta={truckItem ? (camionetaPorItem[truckItem.idGeneral || truckItem.id] || 0) : 0}
+        projects={projects}
+        contexto="proyecto"
+        onCargarDesdeProyecto={handleTruckCargarDesdeProyecto}
+        onDescargarGeneral={handleTruckDescargarGeneral}
+        onDescargarProyecto={handleTruckDescargarProyecto}
+        onClose={() => { if (!actionLoading) { setTruckModalVisible(false); setTruckItem(null); } }}
         loading={actionLoading}
       />
     </View>
@@ -523,5 +674,19 @@ const styles = StyleSheet.create({
     color: "#FFF",
     textAlign: "center",
     fontWeight: "700",
+  },
+  truckGlobalBtn: {
+    backgroundColor: "#78350F",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#EA580C",
+    alignItems: "center",
+  },
+  truckGlobalText: {
+    color: "#FDBA74",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });
