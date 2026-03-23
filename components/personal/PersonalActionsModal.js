@@ -2,11 +2,11 @@
 import { useState } from "react";
 import {
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 
 export default function PersonalActionsModal({
@@ -15,9 +15,10 @@ export default function PersonalActionsModal({
   onAssignToWarehouse,
   onAssignToRetie,
   onAssignToOffice,
-  onAssignManual,      
+  onAssignToDestination,   // NEW: generic destination handler
+  onAssignManual,
   onRelease,
-  onExportExcel,       
+  onExportExcel,
   onClose,
 }) {
   const [manualModal, setManualModal] = useState(false);
@@ -32,6 +33,25 @@ export default function PersonalActionsModal({
     setManualModal(false);
   };
 
+  /**
+   * Helper to call the generic destination handler if available,
+   * otherwise falls back to the specific handler for backwards compat.
+   */
+  const assignDest = (destino) => {
+    if (onAssignToDestination) {
+      onAssignToDestination(selectedPerson, destino);
+    }
+  };
+
+  // New destinations added alongside existing ones
+  const EXTRA_DESTINATIONS = [
+    { label: "📋 Dir. de Operaciones",       destino: "Dirección de Operaciones" },
+    { label: "📐 Diseño de Planos",          destino: "Diseño de Planos" },
+    { label: "📡 Monitoreo",                 destino: "Monitoreo" },
+    { label: "📦 Logística y Adm. Proy.",    destino: "Logística y Administración de Proyectos" },
+    { label: "🤝 Asist. Logíst. y Adm. Proy.", destino: "Asistencia de Logística y Administración de Proyectos" },
+  ];
+
   return (
     <Modal animationType="fade" transparent visible={true}>
       <View style={styles.overlay}>
@@ -41,7 +61,11 @@ export default function PersonalActionsModal({
           </Text>
 
           {selectedPerson.estado === "libre" ? (
-            <>
+            <ScrollView
+              style={styles.scrollArea}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* --- Existing destinations --- */}
               <TouchableOpacity
                 style={styles.button}
                 onPress={() => onAssignToWarehouse(selectedPerson)}
@@ -63,14 +87,22 @@ export default function PersonalActionsModal({
                 <Text style={styles.buttonText}>🔍 Visita RETIE</Text>
               </TouchableOpacity>
 
-              {/* ASIGNAR MANUAL */}
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: "#3182CE" }]}
-                onPress={() => setManualModal(true)}
-              >
-                <Text style={styles.buttonText}>✏️ Proyecto no listado</Text>
-              </TouchableOpacity>
-            </>
+              {/* --- New destinations --- */}
+              {EXTRA_DESTINATIONS.map((item) => (
+                <TouchableOpacity
+                  key={item.destino}
+                  style={styles.button}
+                  onPress={() => assignDest(item.destino)}
+                >
+                  <Text style={styles.buttonText} numberOfLines={1}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              {/* MANUAL ASSIGNMENT */}
+
+            </ScrollView>
           ) : (
             <TouchableOpacity
               style={[styles.button, { backgroundColor: "#48BB78" }]}
@@ -80,7 +112,7 @@ export default function PersonalActionsModal({
             </TouchableOpacity>
           )}
 
-          {/* EXPORTAR HORAS A EXCEL */}
+          {/* EXPORT EXCEL */}
           <TouchableOpacity
             style={[styles.button, { backgroundColor: "#F59E0B" }]}
             onPress={() => onExportExcel(selectedPerson)}
@@ -92,34 +124,6 @@ export default function PersonalActionsModal({
             <Text style={styles.cancelText}>Cancelar</Text>
           </TouchableOpacity>
         </View>
-
-        {/* MODAL TEXTO PROYECTO MANUAL */}
-        {manualModal && (
-          <View style={styles.manualOverlay}>
-            <View style={styles.manualBox}>
-              <Text style={styles.manualTitle}>Proyecto no listado</Text>
-
-              <TextInput
-                style={styles.input}
-                placeholder="Nombre del proyecto..."
-                placeholderTextColor="#AAA"
-                value={manualProject}
-                onChangeText={setManualProject}
-              />
-
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleManualSave}
-              >
-                <Text style={styles.saveButtonText}>Guardar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => setManualModal(false)}>
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
       </View>
     </Modal>
   );
@@ -135,7 +139,8 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: "#1F2937",
     padding: 20,
-    width: "80%",
+    width: "85%",
+    maxHeight: "80%",
     borderRadius: 14,
   },
   title: {
@@ -145,17 +150,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: "center",
   },
+  scrollArea: {
+    maxHeight: 360,
+  },
   button: {
     backgroundColor: "#4F46E5",
     paddingVertical: 12,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    marginBottom: 12,
+    marginBottom: 10,
     alignItems: "center",
   },
   buttonText: {
     color: "#FFF",
     fontWeight: "600",
-    fontSize: 16,
+    fontSize: 15,
   },
   cancelText: {
     color: "#D1D5DB",

@@ -1,6 +1,7 @@
 // components/home/ProjectCard.js
 import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import formatPowerKw from "../../utils/formatPower";
+import { formatPowerDc, formatPowerKw } from "../../utils/formatPower";
+
 
 /**
  * Componente de tarjeta para visualizar información detallada de un proyecto.
@@ -191,7 +192,7 @@ export default function ProjectCard({
 
           {potenciaDcKw > 0 && (
             <Text style={styles.projectKw2}>
-              🔋 {formatPowerKw(potenciaDcKw, { suffix: "DC" })}
+              🔋 {formatPowerDc(potenciaDcKw, { suffix: "DC" })}
             </Text>
           )}
 

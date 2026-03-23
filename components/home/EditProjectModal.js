@@ -233,7 +233,7 @@ export default function EditProjectModal({
         />
 
         {/* Campo: Potencia DC en kW (opcional) */}
-        <Text style={styles.label}>Potencia total instalada (kW DC) (opcional)</Text>
+        <Text style={styles.label}>Potencia total instalada (kWp DC) (opcional)</Text>
         <TextInput
           style={styles.input}
           placeholder="Ej: 60"

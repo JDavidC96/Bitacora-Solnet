@@ -31,4 +31,37 @@ export default function formatPowerKw(valueKw, { suffix = "AC" } = {}) {
   return `${formatted} ${units[unitIndex]}${suffixPart}`;
 }
 
+/**
+ * Formatea una potencia DC en kWp y la escala automáticamente a MWp/GWp/TWp...
+ *
+ * @param {number} valueKwp Potencia en kWp.
+ * @param {{suffix?: string}} opts  — Ej: { suffix: "DC" } → "850 kWp DC"
+ * @returns {string} Ej: "850 kWp", "2.4 MWp DC", "1.25 GWp"
+ */
+export function formatPowerDc(valueKwp, { suffix = "" } = {}) {
+  const n = Number(valueKwp ?? 0);
+
+  if (!Number.isFinite(n) || n <= 0) {
+    return suffix ? `0 kWp ${suffix}` : "0 kWp";
+  }
+
+  const units = ["kWp", "MWp", "GWp", "TWp", "PWp", "EWp"];
+  let value = n;
+  let unitIndex = 0;
+
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value = value / 1000;
+    unitIndex += 1;
+  }
+
+  const formatted = value.toLocaleString("es-CO", {
+    maximumFractionDigits: 2,
+  });
+
+  const suffixPart = suffix ? ` ${suffix}` : "";
+  return `${formatted} ${units[unitIndex]}${suffixPart}`;
+}
+
+// Named re-export para que ambos estilos de import funcionen
+export { formatPowerKw };
 export const formatPower = formatPowerKw;

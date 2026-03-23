@@ -24,6 +24,7 @@ async function abrirJornadaHistorial({
   tipoAsignacion,
   proyectoId,
   nowISO,
+  actividad,
 }) {
   await addDoc(collection(db, "historial_personal"), {
     personalId: personId,
@@ -31,6 +32,7 @@ async function abrirJornadaHistorial({
     destino: destino || "",
     tipoAsignacion: tipoAsignacion || "",
     proyectoId: proyectoId ?? null,
+    actividad: actividad || "",
 
     fechaInicio: nowISO,
     fechaFin: null,
@@ -66,6 +68,7 @@ export const personalService = {
       proyectoId: null,
       tipoAsignacion: "",
       asignadoEn: null,
+      actividad: "",
 
       createdAt: new Date().toISOString(),
     };
@@ -74,12 +77,15 @@ export const personalService = {
     return { ok: true };
   },
 
-  async selfAssignToProject(personId, project) {
+  /**
+   * selfAssignToProject(personId, project, actividad?)
+   * actividad is optional — only Administrador/Ingeniero provide it
+   */
+  async selfAssignToProject(personId, project, actividad = "") {
     if (!project?.id) throw new Error("Proyecto inválido");
 
     const now = new Date().toISOString();
 
-    // 1) Leer la persona para tener el nombre (snap)
     const ref = doc(db, "personal", personId);
     const snap = await getDoc(ref);
 
@@ -89,23 +95,23 @@ export const personalService = {
 
     const data = snap.data();
 
-    // 2) Marcar como ocupado y asignado al proyecto (cumple rules)
     await updateDoc(ref, {
       proyectoAsignado: project.title || "",
       proyectoId: project.id,
       estado: "ocupado",
       tipoAsignacion: "proyecto",
       asignadoEn: now,
+      actividad: actividad || "",
       updatedAt: now,
     });
 
-    // 3) Abrir jornada en historial_personal (para que liberar() la encuentre)
     await addDoc(collection(db, "historial_personal"), {
       personalId: personId,
       nombre: data?.nombre || "",
       destino: project.title || "",
       tipoAsignacion: "proyecto",
       proyectoId: project.id,
+      actividad: actividad || "",
 
       fechaInicio: now,
       fechaFin: null,
@@ -127,6 +133,7 @@ export const personalService = {
       estado: "libre",
       tipoAsignacion: "",
       asignadoEn: "",
+      actividad: "",
 
       updatedAt: now,
     });
@@ -134,8 +141,11 @@ export const personalService = {
     return { ok: true };
   },
 
-  // project = { id, title }
-  async assignToProject(personId, project) {
+  /**
+   * assignToProject(personId, project, actividad?)
+   * actividad is optional — only Administrador/Ingeniero provide it
+   */
+  async assignToProject(personId, project, actividad = "") {
     if (!project?.id) throw new Error("Proyecto inválido (ID requerido)");
 
     const ref = doc(db, "personal", personId);
@@ -153,6 +163,7 @@ export const personalService = {
       proyectoId: project.id,
       tipoAsignacion: "proyecto",
       asignadoEn: now,
+      actividad: actividad || "",
     });
 
     await addDoc(collection(db, "historial_personal"), {
@@ -161,6 +172,7 @@ export const personalService = {
       destino: project.title,
       tipoAsignacion: "proyecto",
       proyectoId: project.id,
+      actividad: actividad || "",
 
       fechaInicio: now,
       fechaFin: null,
@@ -189,6 +201,7 @@ export const personalService = {
       proyectoId: null,
       tipoAsignacion: destinoKey,
       asignadoEn: now,
+      actividad: "",
     });
 
     await addDoc(collection(db, "historial_personal"), {
@@ -197,6 +210,7 @@ export const personalService = {
       destino,
       tipoAsignacion: destinoKey,
       proyectoId: null,
+      actividad: "",
 
       fechaInicio: now,
       fechaFin: null,
@@ -210,7 +224,6 @@ export const personalService = {
 
   /**
    * liberar(personId, destinoFinal)
-   * - destinoFinal: "Bodega", "Oficina", etc. (seleccionado por el usuario al liberarse)
    */
   async liberar(personId, destinoFinal) {
     const ref = doc(db, "personal", personId);
@@ -227,7 +240,6 @@ export const personalService = {
     const fechaFin = new Date();
     const nowISO = fechaFin.toISOString();
 
-    // ✅ Con dominicales/festivos + nocturnas
     const {
       normalHours = 0,
       extraHours = 0,
@@ -249,7 +261,6 @@ export const personalService = {
     const horasExtrasDominicales = dominicalExtraHours;
     const horasExtrasDominicalesNocturnas = dominicalExtraNocturnalHours;
 
-    // totalHoras conserva compatibilidad (incluye todo)
     const totalHoras =
       horasNormales +
       horasExtras +
@@ -260,14 +271,9 @@ export const personalService = {
       horasExtrasDominicales +
       horasExtrasDominicalesNocturnas;
 
-    // ✅ Rol/cargo consistente
     const rol = data.rol || data.cargo || "Tecnico";
-
-    // ✅ destino que queda registrado al cerrar jornada:
-    // si el usuario seleccionó destinoFinal, se usa ese; si no, fallback al proyectoAsignado.
     const destinoRegistro = destinoFinal ?? data.proyectoAsignado ?? "Bodega";
 
-    // REGISTRO DE HORAS
     await horasLaboralesService.registrarJornada({
       personalId: personId,
       nombre: data.nombre,
@@ -276,16 +282,13 @@ export const personalService = {
       fechaInicio: fechaInicio.toISOString(),
       fechaFin: fechaFin.toISOString(),
 
-      // Campos existentes
       horasNormales,
       horasExtras,
       totalHoras,
 
-      // ✅ NUEVOS campos para reportes futuros (reformas)
       horasNocturnas,
       horasExtrasNocturnas,
 
-      // ✅ DOMINICALES/FESTIVOS
       horasDominicales,
       horasDominicalesNocturnas,
       horasExtrasDominicales,
@@ -299,7 +302,6 @@ export const personalService = {
       source: "liberacion",
     });
 
-    // CERRAR HISTORIAL ACTIVO
     const q = query(
       collection(db, "historial_personal"),
       where("personalId", "==", personId),
@@ -317,13 +319,13 @@ export const personalService = {
       estado: "finalizado",
     });
 
-    // LIBERAR PERSONA
     await updateDoc(ref, {
       estado: "libre",
       proyectoAsignado: "",
       proyectoId: "",
       tipoAsignacion: "",
       asignadoEn: "",
+      actividad: "",
       updatedAt: nowISO,
     });
 

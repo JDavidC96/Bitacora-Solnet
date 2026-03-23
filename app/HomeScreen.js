@@ -39,72 +39,44 @@ import SearchModal from '../components/home/SearchModal';
 import FABMenu from '../components/shared/FABMenu';
 
 //Utils
-import formatPowerKw from '../utils/formatPower';
+import { formatPowerDc, formatPowerKw } from '../utils/formatPower';
 
-/**
- * Pantalla principal de la aplicación - Dashboard de proyectos solares.
- * 
- * Esta pantalla sirve como el hub central de la aplicación, proporcionando:
- * - Vista general de todos los proyectos solares activos
- * - Métricas clave de rendimiento (potencia instalada, CO2 evitado, etc.)
- * - Acceso rápido a funcionalidades principales (agregar, buscar, completados)
- * - Gestión de personal y asignaciones por proyecto
- * - Navegación a pantallas de detalle de proyectos
- * 
- * La pantalla incluye:
- * - Estadísticas en tiempo real de proyectos
- * - Lista de proyectos ordenados por fecha
- * - Sistema de roles y permisos
- * - Notificaciones y manejo de actividad
- * 
- * @component
- * @returns {JSX.Element} Componente de la pantalla principal
- */
 export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { role, user } = useUser();
 
   // Estados locales
-  const [selectedProject, setSelectedProject] = useState(null); // Proyecto seleccionado para acciones
-  const [loading, setLoading] = useState(false); // Estado de carga para operaciones
-  const [myPersonalId, setMyPersonalId] = useState(null); // ID del personal asociado al usuario
-  const [myPersonalLoading, setMyPersonalLoading] = useState(true); // Carga del personal del usuario
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [myPersonalId, setMyPersonalId] = useState(null);
+  const [myPersonalLoading, setMyPersonalLoading] = useState(true);
 
   // Hooks personalizados para obtener datos
-  const { projects, loading: projectsLoading, error: projectsError } = useProjects(); // Proyectos activos
-  const { personal, loading: personalLoading } = usePersonal(); // Personal disponible
-  const { completedProjects } = useCompletedProjects(); // Proyectos completados
+  const { projects, loading: projectsLoading, error: projectsError } = useProjects();
+  const { personal, loading: personalLoading } = usePersonal();
+  const { completedProjects } = useCompletedProjects();
   const { modals, openModal, closeModal, closeAllModals } = useMultiModal({
-    add: false,    // Modal agregar proyecto
-    edit: false,   // Modal editar proyecto
-    assign: false, // Modal asignar personal
-    actions: false,// Modal acciones del proyecto
-    search: false  // Modal búsqueda
+    add: false,
+    edit: false,
+    assign: false,
+    actions: false,
+    search: false
   });
 
   // Hooks de utilidad
-  useBackHandler(); // Manejo del botón atrás en Android
-  useNotifications(); // Sistema de notificaciones
+  useBackHandler();
+  useNotifications();
 
-  // Definición de permisos basados en el rol del usuario
-  const canManage = ["Administrador", "Ingeniero"].includes(role); // Permisos de gestión completa
-  const canSelfAssign = ["Tecnico", "Supervisor"].includes(role); // Permisos de auto-asignación
+  // Permisos basados en el rol
+  const canManage = ["Administrador", "Ingeniero"].includes(role);
+  const canSelfAssign = ["Tecnico", "Supervisor"].includes(role);
 
-  /**
-   * Encuentra el objeto de personal correspondiente al usuario actual
-   * basado en el personalId almacenado en usuarios_permitidos
-   * @returns {Object|null} Objeto del personal del usuario o null si no existe
-   */
   const myPersona = useMemo(() => {
     if (!myPersonalId) return null;
     return (personal || []).find(p => p.id === myPersonalId) || null;
   }, [personal, myPersonalId]);
 
-  /**
-   * Efecto para obtener el personalId del usuario desde Firestore
-   * Lee el documento del usuario en 'usuarios_permitidos' para obtener su personalId asociado
-   */
   useMemo(() => {
     let cancelled = false;
 
@@ -131,10 +103,6 @@ export default function HomeScreen() {
   // CÁLCULO DE ESTADÍSTICAS
   // =========================
 
-  /**
-   * Combina proyectos activos y completados para cálculos totales
-   * @returns {Array} Lista combinada de todos los proyectos
-   */
   const allProjects = useMemo(() => {
     return [
       ...(Array.isArray(projects) ? projects : []),
@@ -142,11 +110,6 @@ export default function HomeScreen() {
     ];
   }, [projects, completedProjects]);
 
-  /**
-   * Calcula la potencia total AC instalada en kW
-   * Busca en diferentes campos de nombre para compatibilidad
-   * @returns {number} Potencia total AC en kW
-   */
   const totalKwAc = useMemo(() => {
     return allProjects.reduce((acc, p) => {
       const kw = Number(
@@ -160,11 +123,6 @@ export default function HomeScreen() {
     }, 0);
   }, [allProjects]);
 
-  /**
-   * Calcula la potencia total DC instalada en kW
-   * Busca en diferentes campos de nombre para compatibilidad
-   * @returns {number} Potencia total DC en kW
-   */
   const totalKwDc = useMemo(() => {
     return allProjects.reduce((acc, p) => {
       const kw = Number(
@@ -179,11 +137,6 @@ export default function HomeScreen() {
     }, 0);
   }, [allProjects]);
 
-  /**
-   * Calcula el total de paneles solares instalados
-   * Busca en diferentes campos de nombre para compatibilidad
-   * @returns {number} Total de paneles instalados
-   */
   const totalPaneles = useMemo(() => {
     return allProjects.reduce((acc, p) => {
       const n = Number(
@@ -196,46 +149,30 @@ export default function HomeScreen() {
     }, 0);
   }, [allProjects]);
 
-  /**
-   * Calcula la reducción aproximada de CO2 en toneladas por año
-   * Basado en la potencia DC instalada y factores de conversión estándar
-   * 
-   * Fórmula: (kW DC) × (horas/año) × (factor capacidad) × (emisiones grid) ÷ 1000
-   * 
-   * @returns {number} Toneladas de CO2 evitadas por año
-   */
   const co2TonsPerYear = useMemo(() => {
-    const CAPACITY_FACTOR = 0.18;        // Factor de capacidad típico residencial/comercial (18%)
-    const GRID_CO2_KG_PER_KWH = 0.4;     // Emisiones de la red eléctrica (0.4 kg CO2 por kWh)
-    const HOURS_YEAR = 8760;             // Horas en un año
+    const CAPACITY_FACTOR = 0.18;
+    const GRID_CO2_KG_PER_KWH = 0.4;
+    const HOURS_YEAR = 8760;
 
-    const kwhYear = totalKwDc * HOURS_YEAR * CAPACITY_FACTOR; // kWh generados por año
-    const kgCo2Year = kwhYear * GRID_CO2_KG_PER_KWH; // kg CO2 evitados
-    const tons = kgCo2Year / 1000; // Conversión a toneladas
+    const kwhYear = totalKwDc * HOURS_YEAR * CAPACITY_FACTOR;
+    const kgCo2Year = kwhYear * GRID_CO2_KG_PER_KWH;
+    const tons = kgCo2Year / 1000;
 
     if (!Number.isFinite(tons) || tons <= 0) return 0;
     return tons;
   }, [totalKwDc]);
 
-  /**
-   * Funciones de formato para números
-   */
-  const formatInt = (n) => Number(n || 0).toLocaleString("es-CO"); // Formato entero
+  const formatInt = (n) => Number(n || 0).toLocaleString("es-CO");
   const formatTons = (n) =>
-    Number(n || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 }); // Formato decimal para toneladas
+    Number(n || 0).toLocaleString("es-CO", { maximumFractionDigits: 2 });
 
-  // ========== HANDLERS (Manejadores de eventos) ==========
+  // ========== HANDLERS ==========
 
-  /**
-   * Maneja la creación de un nuevo proyecto
-   * @param {Object} projectData - Datos del proyecto a crear
-   */
   const handleAddProject = async (projectData) => {
     setLoading(true);
     try {
       const result = await projectService.create(projectData);
 
-      // Crear etapas iniciales automáticamente para el nuevo proyecto
       await projectService.createInitialStages(
         result.id,
         projectData.date.toISOString().split('T')[0]
@@ -251,10 +188,6 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Maneja la edición de un proyecto existente
-   * @param {Object} updates - Campos actualizados del proyecto
-   */
   const handleEditProject = async (updates) => {
     if (!selectedProject) return;
 
@@ -272,9 +205,6 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Maneja la eliminación de un proyecto con confirmación
-   */
   const handleDeleteProject = async () => {
     if (!selectedProject) return;
 
@@ -312,17 +242,45 @@ export default function HomeScreen() {
   };
 
   /**
-   * Permite que un técnico o supervisor se asigne a sí mismo a un proyecto
-   * @param {Object} project - Proyecto al cual auto-asignarse
+   * Auto-asignarse a un proyecto (Técnico/Supervisor).
+   * Para Administrador/Ingeniero se muestra un prompt opcional de actividad.
    */
   const handleSelfAssign = async (project) => {
-    if (!canSelfAssign) return;
+    if (!canSelfAssign && !canManage) return;
     if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
     if (!myPersona?.id) return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
 
+    // For Administrador/Ingeniero: show optional activity prompt
+    if (canManage) {
+      Alert.prompt(
+        "Actividad (opcional)",
+        "¿Qué se va a hacer en este proyecto?",
+        [
+          { text: "Omitir", onPress: () => doSelfAssign(project, "") },
+          {
+            text: "Guardar",
+            onPress: (actividad) => doSelfAssign(project, actividad || ""),
+          },
+        ],
+        "plain-text",
+        "",
+        "default"
+      );
+      return;
+    }
+
+    // For Técnico/Supervisor: assign directly without activity
+    doSelfAssign(project, "");
+  };
+
+  const doSelfAssign = async (project, actividad) => {
     setLoading(true);
     try {
-      await personalService.selfAssignToProject(myPersona.id, { id: project.id, title: project.title });
+      await personalService.selfAssignToProject(
+        myPersona.id,
+        { id: project.id, title: project.title },
+        actividad
+      );
       await markAssignActivity();
       Alert.alert("Éxito", "Te asignaste al proyecto.");
     } catch (e) {
@@ -333,10 +291,6 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Muestra confirmación para auto-liberarse de un proyecto
-   * @param {Object} project - Proyecto del cual liberarse
-   */
   const confirmSelfUnassign = (project) => {
     Alert.alert(
       "Liberar personal",
@@ -352,12 +306,8 @@ export default function HomeScreen() {
     );
   };
 
-  /**
-   * Permite que un técnico o supervisor se libere de su asignación actual
-   * @param {Object} project - Proyecto del cual liberarse
-   */
   const handleSelfUnassign = async (project) => {
-    if (!canSelfAssign) return;
+    if (!canSelfAssign && !canManage) return;
     if (myPersonalLoading) return Alert.alert("Espera", "Cargando tu perfil...");
     if (!myPersona?.id) {
       return Alert.alert("Error", "No se encontró tu personalId (usuarios_permitidos.personalId).");
@@ -376,11 +326,6 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Maneja el evento de presión larga sobre un proyecto
-   * Muestra diferentes opciones según el rol del usuario
-   * @param {Object} project - Proyecto sobre el que se hizo long press
-   */
   const handleProjectLongPress = (project) => {
     setSelectedProject(project);
 
@@ -410,10 +355,6 @@ export default function HomeScreen() {
     openModal("actions");
   };
 
-  /**
-   * Navega a la pantalla de notas/detalles de un proyecto
-   * @param {Object} project - Proyecto seleccionado
-   */
   const handleProjectPress = (project) => {
     router.push({
       pathname: '/NoteScreen',
@@ -424,10 +365,6 @@ export default function HomeScreen() {
     });
   };
 
-  /**
-   * Marca actividad de asignación en Firestore
-   * Actualiza los campos de actividad del usuario
-   */
   const markAssignActivity = async () => {
     if (!user?.uid) return;
 
@@ -437,10 +374,6 @@ export default function HomeScreen() {
     });
   };
 
-  /**
-   * Marca actividad de liberación en Firestore
-   * Actualiza solo el campo lastActivity
-   */
   const markUnassignActivity = async () => {
     if (!user?.uid) return;
 
@@ -450,10 +383,10 @@ export default function HomeScreen() {
   };
 
   /**
-   * Asigna una persona a un proyecto (Administrador/Ingeniero)
-   * @param {string} personId - ID de la persona a asignar
+   * Asigna una persona a un proyecto (Administrador/Ingeniero).
+   * Now receives actividad as second argument from AssignPersonModal.
    */
-  const handleAssignPerson = async (personId) => {
+  const handleAssignPerson = async (personId, actividad = "") => {
     if (!selectedProject || !personId) return;
 
     setLoading(true);
@@ -463,10 +396,11 @@ export default function HomeScreen() {
         throw new Error('Persona no encontrada');
       }
 
-      await personalService.assignToProject(persona.id, {
-        id: selectedProject.id,
-        title: selectedProject.title
-      });
+      await personalService.assignToProject(
+        persona.id,
+        { id: selectedProject.id, title: selectedProject.title },
+        actividad
+      );
 
       closeAllModals();
       setSelectedProject(null);
@@ -479,10 +413,6 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Libera a una persona de su asignación actual (Administrador/Ingeniero)
-   * @param {Object} persona - Objeto de personal a liberar
-   */
   const handleLiberarPersona = async (persona) => {
     if (!persona) return;
 
@@ -507,10 +437,6 @@ export default function HomeScreen() {
     );
   };
 
-  /**
-   * Ordena proyectos por fecha de creación (más recientes primero)
-   * @type {Array}
-   */
   const sortedProjects = (Array.isArray(projects) ? projects : [])
     .sort((a, b) => {
       const dateA = a.createdAt || a.startDate || 0;
@@ -518,9 +444,8 @@ export default function HomeScreen() {
       return new Date(dateB) - new Date(dateA);
     });
 
-  // ========== RENDER (Interfaz de usuario) ==========
+  // ========== RENDER ==========
 
-  // Manejo de estado de error en la carga de proyectos
   if (projectsError) {
     return (
       <View style={styles.errorContainer}>
@@ -537,10 +462,8 @@ export default function HomeScreen() {
   }
 
   return (
-    // Fondo con gradiente de amarillos/naranjas
     <LinearGradient colors={['#edf2b1ff', '#ffc782ff', '#FF4500']} style={{ flex: 1 }}>
       <View style={{ flex: 1 }}>
-        {/* Imagen de fondo con logo */}
         <Image
           source={require("../assets/images/terrall.png")}
           style={styles.bgImage}
@@ -548,7 +471,6 @@ export default function HomeScreen() {
         />
 
         <View style={styles.container}>
-          {/* Encabezado con título y estadísticas */}
           <View style={styles.header}>
             <View>
               <Text style={styles.title}>Proyectos Solares</Text>
@@ -556,13 +478,12 @@ export default function HomeScreen() {
                 Gestión y seguimiento de instalaciones
               </Text>
 
-              {/* Estadísticas de proyectos */}
               <Text style={styles.kwTotal}>
                 ⚡ {formatPowerKw(totalKwAc, { suffix: "AC" })} instalados
               </Text>
 
               <Text style={styles.kwTotal}>
-                🔋 {formatPowerKw(totalKwDc, { suffix: "DC" })} instalados
+                🔋 {formatPowerDc(totalKwDc, { suffix: "DC" })} instalados
               </Text>
 
               <Text style={styles.kwTotal}>
@@ -574,7 +495,6 @@ export default function HomeScreen() {
               </Text>
             </View>
 
-            {/* Chip que muestra el rol del usuario */}
             {user?.email && (
               <View style={styles.userChip}>
                 <Text style={styles.userChipText}>
@@ -584,7 +504,6 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {/* Indicador de carga */}
           {(projectsLoading || personalLoading) && (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#FF7A00" />
@@ -592,27 +511,19 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Lista principal de proyectos */}
           {!projectsLoading && (
             <ProjectList
               projects={sortedProjects}
               personal={personal}
-
-              // Permisos y roles
               viewerRole={role}
               viewerPersonalId={myPersonalId}
               canManage={canManage}
-
-              // Navegación
               onProjectPress={handleProjectPress}
               onProjectLongPress={handleProjectLongPress}
-
-              // Gestión de personal (solo administradores)
               onLiberarPersona={handleLiberarPersona}
             />
           )}
 
-          {/* Menú de botones flotantes (FAB) */}
           {!projectsLoading && (
             <FABMenu
               showSearch={true}
@@ -626,7 +537,6 @@ export default function HomeScreen() {
 
           {/* ========== MODALES ========== */}
 
-          {/* Modal: Agregar nuevo proyecto */}
           <AddProjectModal
             visible={modals.add}
             onClose={closeAllModals}
@@ -634,7 +544,6 @@ export default function HomeScreen() {
             loading={loading}
           />
 
-          {/* Modal: Editar proyecto existente */}
           <EditProjectModal
             visible={modals.edit}
             project={selectedProject}
@@ -643,7 +552,7 @@ export default function HomeScreen() {
             loading={loading}
           />
 
-          {/* Modal: Asignar personal a proyecto */}
+          {/* AssignPersonModal now receives role to show activity field */}
           <AssignPersonModal
             visible={modals.assign}
             project={selectedProject}
@@ -651,9 +560,9 @@ export default function HomeScreen() {
             onClose={closeAllModals}
             onAssign={handleAssignPerson}
             loading={loading}
+            role={role}
           />
 
-          {/* Modal: Acciones disponibles para un proyecto */}
           <ProjectActionsModal
             visible={modals.actions}
             project={selectedProject}
@@ -671,7 +580,6 @@ export default function HomeScreen() {
             loading={loading}
           />
 
-          {/* Modal: Buscar proyectos por nombre, personal, etc. */}
           <SearchModal
             visible={modals.search}
             onClose={closeAllModals}
@@ -690,10 +598,10 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 40, // Espacio para status bar
+    paddingTop: 40,
     paddingHorizontal: 16,
     paddingBottom: 16,
-    backgroundColor: 'rgba(255, 248, 242, 0.82)', // Fondo semitransparente sobre gradiente
+    backgroundColor: 'rgba(255, 248, 242, 0.82)',
   },
   header: {
     flexDirection: 'row',
@@ -703,28 +611,28 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    color: '#111827', // Gris muy oscuro
+    color: '#111827',
     fontWeight: '800',
   },
   subtitle: {
     fontSize: 13,
-    color: '#6B7280', // Gris medio
+    color: '#6B7280',
     marginTop: 4,
   },
   kwTotal: {
     fontSize: 13,
-    color: '#374151', // Gris oscuro
+    color: '#374151',
     marginTop: 6,
     fontWeight: '700',
   },
   userChip: {
-    backgroundColor: '#111827', // Fondo oscuro
+    backgroundColor: '#111827',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 999, // Forma circular
+    borderRadius: 999,
   },
   userChipText: {
-    color: '#F9FAFB', // Blanco
+    color: '#F9FAFB',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -734,8 +642,8 @@ const styles = StyleSheet.create({
     height: 130,
     bottom: 40,
     left: '50%',
-    marginLeft: -130, // Centra horizontalmente (mitad del ancho)
-    opacity: 0.22, // Baja opacidad para no interferir con contenido
+    marginLeft: -130,
+    opacity: 0.22,
   },
   loadingContainer: {
     justifyContent: 'center',
@@ -744,31 +652,31 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    color: '#4B5563', // Gris
+    color: '#4B5563',
     fontSize: 14,
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0F172A', // Azul oscuro
+    backgroundColor: '#0F172A',
     padding: 20,
   },
   errorText: {
-    color: '#F97373', // Rojo anaranjado
+    color: '#F97373',
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
   },
   errorSubtext: {
-    color: '#CBD5F5', // Azul muy claro
+    color: '#CBD5F5',
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: '#4F46E5', // Azul índigo
+    backgroundColor: '#4F46E5',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
